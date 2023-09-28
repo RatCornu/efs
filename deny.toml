@@ -1,0 +1,18 @@
+all-features = true
+
+[advisories]
+notice = "deny"
+unmaintained = "deny"
+unsound = "deny"
+vulnerability = "deny"
+yanked = "deny"
+
+[licenses]
+allow-osi-fsf-free = "both"
+confidence-threshold = 1
+copyleft = "allow"
+default = "deny"
+unlicensed = "deny"
+
+[sources]
+unknown-registry = "deny"

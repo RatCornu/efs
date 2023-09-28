@@ -1,0 +1,46 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+
+  tests:
+    name: tests
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@master
+      - name: Generate documentation
+        run: cargo doc --no-deps
+      - name: Create index file
+        run: echo "<meta http-equiv=\"refresh\" content=\"0; url=efs\">" > target/doc/index.html
+      - name: Upload page artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: "target/doc/"
+
+  deploy:
+    name: deploy
+    needs: tests
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.output.page_url }}
+    
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy documentation to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
