@@ -2,7 +2,16 @@
 name = "efs"
 version = "0.1.0"
 edition = "2021"
+authors = ["RatCornu <ratcornu@skaven.org>"]
+license = "MIT OR Apache-2.0"
+description = "An OS and architecture independent implementation of some filesystems in Rust."
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "efs"
+path = "src/lib.rs"
 
 [dependencies]
+
+[features]
+default = ["no_std"]
+no_std = []
