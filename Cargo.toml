@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2021"
 authors = ["RatCornu <ratcornu@skaven.org>"]
 license = "MIT OR Apache-2.0"
-description = "An OS and architecture independent implementation of some filesystems in Rust."
+description = "An OS and architecture independent implementation of some Unix filesystems in Rust."
 
 [lib]
 name = "efs"
 path = "src/lib.rs"
 
 [dependencies]
+derive_more = "0.99"
 
 [features]
 default = ["no_std"]

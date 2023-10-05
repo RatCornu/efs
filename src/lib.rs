@@ -1,6 +1,6 @@
 //! Extended filesystems
 //!
-//! An OS and architecture independent implementation of some filesystems in Rust.
+//! An OS and architecture independent implementation of some Unix filesystems in Rust.
 
 #![cfg_attr(all(not(test), feature = "no_std"), no_std)]
 #![deny(
@@ -56,3 +56,6 @@
 
 extern crate alloc;
 extern crate core;
+
+pub mod file;
+pub mod types;

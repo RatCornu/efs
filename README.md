@@ -9,4 +9,4 @@
 
 # Extended filesystem
 
-An OS and architecture independent implementation of some filesystems in Rust.
+An OS and architecture independent implementation of some Unix filesystems in Rust.
