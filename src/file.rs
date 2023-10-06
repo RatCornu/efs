@@ -1,15 +1,15 @@
 //! General interface for Unix files
 //!
-//! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) for more informations.
+//! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) and [the POSIX header of `<sys/stat.h>`](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html) for more informations.
 
+use crate::error::Result;
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Timespec, Uid};
 
 /// Enumeration of possible file types
 #[derive(Debug, Clone, Copy)]
-#[allow(unused)]
 pub enum Type {
     /// Storage unit of a filesystem
-    RegularFile,
+    Regular,
 
     /// Node containing other nodes
     Directory,
@@ -79,3 +79,16 @@ pub struct Stat {
 
 /// Main trait for all Unix files
 pub trait File: Into<Stat> {}
+
+/// A file that is a randomly accessible sequence of bytes, with no further structure imposed by the system
+pub trait Regular: File {
+    /// Reads at most `length` bytes from the file and copies them to `buf`
+    ///
+    /// Returns the number of bytes read during the process
+    fn read(&self, buf: &mut [u8], length: usize) -> Result<usize>;
+
+    /// Writes at most `length` bytes from `buf` and copies them to the file
+    ///
+    /// Returns the number of bytes written during the process
+    fn write(&mut self, buf: &[u8], length: usize) -> Result<usize>;
+}

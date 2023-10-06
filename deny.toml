@@ -13,6 +13,9 @@ confidence-threshold = 1
 copyleft = "allow"
 default = "deny"
 unlicensed = "deny"
+allow = [
+    "Unicode-DFS-2016"
+]
 
 [sources]
 unknown-registry = "deny"

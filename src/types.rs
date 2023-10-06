@@ -6,23 +6,6 @@ use derive_more::{Deref, DerefMut};
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
 pub struct Dev(pub u16);
 
-// impl Dev {
-//     /// Major device ID
-//     pub fn major(&self) -> u16 {
-//         todo!()
-//     }
-//
-//     /// Minor device ID
-//     pub fn minor(&self) -> u16 {
-//         todo!()
-//     }
-//
-//     /// Create a device ID from a major and a minor device ID
-//     pub fn makedev(major: u16, minor: u16) -> Self {
-//         todo!()
-//     }
-// }
-
 /// Used for file serial numbers
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
 pub struct Ino(pub u32);
