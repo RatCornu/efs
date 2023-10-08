@@ -59,4 +59,5 @@ extern crate core;
 
 pub mod error;
 pub mod file;
+pub mod fs;
 pub mod types;

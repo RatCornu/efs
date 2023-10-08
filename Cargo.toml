@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 derive_more = "0.99"
+no_std_io = "0.6.0"
 
 [features]
 default = ["no_std"]
