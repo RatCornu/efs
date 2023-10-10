@@ -1,4 +1,4 @@
-//! Extended filesystems
+//! Extended fs
 //!
 //! An OS and architecture independent implementation of some Unix filesystems in Rust.
 

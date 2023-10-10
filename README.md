@@ -7,6 +7,6 @@
 [build-link]: https://github.com/RatCornu/efs/actions?query=workflow:"Build"
 [documentation-link]: https://github.com/RatCornu/efs/actions?query=workflow:"Documentation"
 
-# Extended filesystem
+# Extended fs
 
 An OS and architecture independent implementation of some Unix filesystems in Rust.
