@@ -53,11 +53,13 @@
         clippy::wildcard_imports
     )
 )]
+#![feature(iter_advance_by)]
+#![feature(let_chains)]
 
 extern crate alloc;
 extern crate core;
 
-pub mod error;
 pub mod file;
 pub mod fs;
+pub mod path;
 pub mod types;

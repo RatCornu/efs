@@ -57,12 +57,6 @@ pub struct Stat {
     pub st_blkcnt: Blkcnt,
 }
 
-/// A per-process unique, non-negative integer used to identify an open file for the purpose of file access.
-///
-/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_166)
-#[allow(clippy::module_name_repetitions)]
-pub struct FileDescriptor(pub usize);
-
 /// Main trait for all Unix files
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_164).
