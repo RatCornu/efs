@@ -53,6 +53,7 @@
         clippy::wildcard_imports
     )
 )]
+#![feature(const_mut_refs)]
 #![feature(iter_advance_by)]
 #![feature(let_chains)]
 
