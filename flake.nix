@@ -40,6 +40,7 @@
         buildInputs = with pkgs; [
           rust
           cargo
+          cargo-deny
           clippy
           rustfmt
           alejandra

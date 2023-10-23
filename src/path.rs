@@ -3,11 +3,40 @@
 use alloc::borrow::{Cow, ToOwned};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::fmt::Display;
 use core::iter::FusedIterator;
 use core::str::FromStr;
+use core::{error, fmt};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+
+/// Enumeration of possible errors encountered with [`Path`]s' manipulation.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum PathError {
+    /// Indicates that a given filename is either empty or contains a `\0` character
+    InvalidFilename(String),
+
+    /// Indicates that the given path is relative while an absolute one is needed
+    AbsolutePathRequired(String),
+}
+
+impl Display for PathError {
+    #[inline]
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidFilename(filename) => {
+                write!(formatter, "Invalid Filename: `{filename}` is either empty or contains a `\0` character")
+            },
+            Self::AbsolutePathRequired(path) => {
+                write!(formatter, "Absolute Path Needed: `{path}` is relative while an absolute path is requested")
+            },
+        }
+    }
+}
+
+impl error::Error for PathError {}
 
 /// A general structure to implement paths.
 ///
@@ -17,6 +46,11 @@ pub struct UnixStr<'path>(Cow<'path, str>);
 
 impl<'path> UnixStr<'path> {
     /// Creates a new [`UnixStr`] from a string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`InvalidFilename`](enum.PathError.html#variant.InvalidFilename) if the given string is empty or contains a `\0`
+    /// character.
     ///
     /// # Examples
     ///
@@ -32,27 +66,33 @@ impl<'path> UnixStr<'path> {
     /// let not_valid = UnixStr::new("").unwrap();
     /// ```
     #[inline]
-    #[must_use]
-    pub fn new(str: &'path str) -> Option<Self> {
-        (!str.is_empty() && !str.contains('\0')).then_some(Self(Cow::from(str)))
+    pub fn new(str: &'path str) -> Result<Self, PathError> {
+        (!str.is_empty() && !str.contains('\0'))
+            .then_some(Self(Cow::from(str)))
+            .ok_or_else(|| PathError::InvalidFilename(str.to_owned()))
     }
 
     /// Checks whether the inner string contains exactly two leading '/' characters
     fn starts_with_two_slashes(&self) -> bool {
         self.0.starts_with("//") && !self.0.starts_with("///")
     }
+
+    /// Does the [`UnixStr`] ends with a trailing backs
+    #[inline]
+    #[must_use]
+    pub fn has_trailing_backslash(&self) -> bool {
+        self.0.ends_with('/')
+    }
 }
 
 impl FromStr for UnixStr<'_> {
-    type Err = &'static str;
+    type Err = PathError;
 
     #[inline]
     fn from_str(str: &str) -> Result<Self, Self::Err> {
-        if str.is_empty() || str.contains('\0') {
-            Err("Tried to make a UnixStr from an empty string")
-        } else {
-            Ok(Self(Cow::Owned(str.to_owned())))
-        }
+        (!str.is_empty() && !str.contains('\0'))
+            .then_some(Self(Cow::Owned(str.to_owned())))
+            .ok_or_else(|| PathError::InvalidFilename(str.to_owned()))
     }
 }
 
@@ -111,12 +151,12 @@ impl<'path> Path<'path> {
     ///
     /// assert!(Path::from_str("/home").unwrap().is_absolute());
     /// assert!(!Path::from_str("./foo/bar").unwrap().is_absolute());
-    /// assert!(!Path::from_str("//home").unwrap().is_absolute());
+    /// assert!(Path::from_str("//home").unwrap().is_absolute());
     /// ```
     #[inline]
     #[must_use]
     pub fn is_absolute(&self) -> bool {
-        self.name.0.starts_with('/') && !self.name.starts_with_two_slashes()
+        self.name.0.starts_with('/')
     }
 
     /// Checks if the path is absolute.
@@ -199,6 +239,56 @@ impl<'path> Path<'path> {
         &mut self.name
     }
 
+    /// Returns a new [`Path`] which is obtained from `self` after extending it with `path`.
+    ///
+    /// If `path` is absolute, does not take `self` into account.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::str::FromStr;
+    ///
+    /// use efs::path::Path;
+    ///
+    /// let first_path = Path::from_str("/home").unwrap();
+    /// let second_path = Path::from_str("user").unwrap();
+    /// assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/home/user").unwrap());
+    ///
+    /// let first_path = Path::from_str("/home/").unwrap();
+    /// let second_path = Path::from_str("user").unwrap();
+    /// assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/home/user").unwrap());
+    ///
+    /// let first_path = Path::from_str("./foo").unwrap();
+    /// let second_path = Path::from_str("/bar/baz").unwrap();
+    /// assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/bar/baz").unwrap());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn join(&self, path: &Path<'path>) -> Self {
+        if path.is_absolute() {
+            path.clone()
+        } else {
+            let self_unix_str = self.as_unix_str();
+            let mut unix_str = self_unix_str.0.to_string();
+            if !self_unix_str.has_trailing_backslash() {
+                unix_str.push('/');
+            }
+            unix_str.extend(path.as_unix_str().0.chars());
+            let Ok(new_path) = Path::from_str(&unix_str) else {
+                unreachable!("`self` and `path` are both Path so their concatenation is also a valid Path")
+            };
+            new_path
+        }
+    }
+
+    /// Returns the size of the string representation of `self`.
+    #[allow(clippy::len_without_is_empty)]
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.as_unix_str().0.len()
+    }
+
     /// Produces an iterator over the Components of the path.
     #[inline]
     #[must_use]
@@ -208,7 +298,7 @@ impl<'path> Path<'path> {
 }
 
 impl FromStr for Path<'_> {
-    type Err = &'static str;
+    type Err = PathError;
 
     #[inline]
     fn from_str(str: &str) -> Result<Self, Self::Err> {
@@ -278,8 +368,25 @@ impl PartialEq for Path<'_> {
 
 impl Eq for Path<'_> {}
 
-/// Root directory.
-pub static ROOT: Lazy<Path> = Lazy::new(|| Path::from_str("/").unwrap_or_else(|_| unreachable!("ROOT is a non-empty path")));
+impl<'path> TryFrom<&Components<'_>> for Path<'path> {
+    type Error = <Path<'path> as FromStr>::Err;
+
+    #[inline]
+    fn try_from(value: &Components<'_>) -> Result<Self, Self::Error> {
+        Path::from_str(&value.to_string())
+    }
+}
+
+/// Root Unix string.
+pub static ROOT: Lazy<UnixStr> = Lazy::new(|| UnixStr::from_str("/").unwrap_or_else(|_| unreachable!("ROOT is a non-empty path")));
+
+/// Curent directory Unix string.
+pub static CUR_DIR: Lazy<UnixStr> =
+    Lazy::new(|| UnixStr::from_str(".").unwrap_or_else(|_| unreachable!("CUR_DIR is a non-empty path")));
+
+/// Parent directory Unix string.
+pub static PARENT_DIR: Lazy<UnixStr> =
+    Lazy::new(|| UnixStr::from_str("..").unwrap_or_else(|_| unreachable!("CUR_DIR is a non-empty path")));
 
 /// Component parsing works by a double-ended state machine; the cursors at the
 /// front and back of the path each keep track of what parts of the path have
@@ -326,12 +433,12 @@ pub enum Component<'path> {
 }
 
 impl FromStr for Component<'_> {
-    type Err = &'static str;
+    type Err = PathError;
 
     #[inline]
     fn from_str(str: &str) -> Result<Self, Self::Err> {
         match str {
-            "" => Err("Tried to create a path component from an empty string"),
+            "" => Err(PathError::InvalidFilename(str.to_owned())),
             "/" => Ok(Self::RootDir),
             "//" => Ok(Self::DoubleSlashRootDir),
             "." => Ok(Self::CurDir),
@@ -341,8 +448,21 @@ impl FromStr for Component<'_> {
     }
 }
 
+impl ToString for Component<'_> {
+    #[inline]
+    fn to_string(&self) -> String {
+        match self {
+            Component::RootDir => "/".to_owned(),
+            Component::DoubleSlashRootDir => "//".to_owned(),
+            Component::CurDir => ".".to_owned(),
+            Component::ParentDir => "..".to_owned(),
+            Component::Normal(filename) => filename.to_string(),
+        }
+    }
+}
+
 /// An iterator over the [`Component`]s of a [`Path`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Components<'path> {
     /// The path left to parse components from.
     ///
@@ -351,7 +471,8 @@ pub struct Components<'path> {
 
     /// Starting dir of the path.
     ///
-    /// If [`Some`](Option), can only contain [`RootDir`](Component), [`DoubleSlashRootDir`](Component) or [`CurDir`](Component).
+    /// If [`Some`], can only contain [`RootDir`](enum.Component.html#variant.RootDir),
+    /// [`DoubleSlashRootDir`](enum.Component.html#variant.DoubleSlashRootDir) or [`CurDir`](enum.Component.html#variant.CurDir).
     start_dir: Option<Component<'path>>,
 
     /// Keeps track of what has been consumed on the left side of the path.
@@ -387,17 +508,17 @@ impl<'path> Components<'path> {
         }
     }
 
-    /// Does the original path starts with [`RootDir`](Component) ?
+    /// Does the original path starts with [`RootDir`](enum.Component.html#variant.RootDir) ?
     fn has_root(&self) -> bool {
         self.start_dir == Some(Component::RootDir)
     }
 
-    /// Does the original path starts with [`DoubleSlashRootDir`](Component) ?
+    /// Does the original path starts with [`DoubleSlashRootDir`](enum.Component.html#variant.DoubleSlashRootDir) ?
     fn has_double_slash_root(&self) -> bool {
         self.start_dir == Some(Component::DoubleSlashRootDir)
     }
 
-    /// Does the original path starts with [`CurDir`](Component) ?
+    /// Does the original path starts with [`CurDir`](enum.Component.html#variant.CurDir) ?
     fn include_cur_dir(&self) -> bool {
         self.start_dir == Some(Component::CurDir)
     }
@@ -461,7 +582,7 @@ impl<'path> Components<'path> {
     }
 }
 
-impl<'path> Iterator for Components<'path> {
+impl<'path> Iterator for &mut Components<'path> {
     type Item = Component<'path>;
 
     #[inline]
@@ -501,9 +622,45 @@ impl<'path> Iterator for Components<'path> {
 
         None
     }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // SAFETY: the remaining `path` always contains a complete string
+        let Ok(path) = Path::from_str(unsafe { &String::from_utf8_unchecked(self.path.to_vec()) }) else {
+            // If a `Path` cannot be built from the remaining sequence, then it is empty.
+            return (0, Some(0));
+        };
+
+        let mut canonical_path = path.canonical();
+        let mut canonical_str = canonical_path.as_mut_unix_str().0.as_ref();
+        let mut extra = 0_usize;
+
+        if canonical_str.starts_with("//") {
+            // SAFETY: `canonical_str` begins with two '/'
+            unsafe {
+                canonical_str = canonical_str.strip_prefix("//").unwrap_unchecked();
+            };
+            extra += 1;
+        } else if canonical_str.starts_with('/') {
+            // SAFETY: `canonical_str` begins with one '/'
+            unsafe {
+                canonical_str = canonical_str.strip_prefix('/').unwrap_unchecked();
+            };
+            extra += 1;
+        }
+        if canonical_str.ends_with('/') {
+            // SAFETY: `canonical_str` begins with one '/'
+            unsafe {
+                canonical_str = canonical_str.strip_suffix('/').unwrap_unchecked();
+            };
+        }
+
+        let nb_components = if canonical_str.is_empty() { extra } else { canonical_str.split('/').count() + extra };
+        (nb_components, Some(nb_components))
+    }
 }
 
-impl<'path> DoubleEndedIterator for Components<'path> {
+impl<'path> DoubleEndedIterator for &mut Components<'path> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         while !self.is_finished() {
@@ -543,7 +700,17 @@ impl<'path> DoubleEndedIterator for Components<'path> {
     }
 }
 
-impl FusedIterator for Components<'_> {}
+impl FusedIterator for &mut Components<'_> {}
+
+impl ExactSizeIterator for &mut Components<'_> {}
+
+impl ToString for Components<'_> {
+    #[inline]
+    fn to_string(&self) -> String {
+        // SAFETY: at each step of the iteration over self, self.path remains a valid string
+        unsafe { String::from_utf8_unchecked(self.path.to_vec()) }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -553,11 +720,11 @@ mod test {
 
     #[test]
     fn unix_str_creation() {
-        assert!(UnixStr::new("/").is_some());
-        assert!(UnixStr::new("/home//user///foo").is_some());
+        assert!(UnixStr::new("/").is_ok());
+        assert!(UnixStr::new("/home//user///foo").is_ok());
 
-        assert!(UnixStr::new("").is_none());
-        assert!(UnixStr::new("/home//user///\0foo").is_none());
+        assert!(UnixStr::new("").is_err());
+        assert!(UnixStr::new("/home//user///\0foo").is_err());
     }
 
     #[test]
@@ -593,120 +760,225 @@ mod test {
     }
 
     #[test]
+    fn path_extension() {
+        let first_path = Path::from_str("/home").unwrap();
+        let second_path = Path::from_str("user").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/home/user").unwrap());
+
+        let first_path = Path::from_str("/home/").unwrap();
+        let second_path = Path::from_str("user").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/home/user").unwrap());
+
+        let first_path = Path::from_str("//home//").unwrap();
+        let second_path = Path::from_str("user/").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("//home/user/").unwrap());
+
+        let first_path = Path::from_str("/foo/bar").unwrap();
+        let second_path = Path::from_str("/home/user/").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/home/user/").unwrap());
+
+        let first_path = Path::from_str("./foo").unwrap();
+        let second_path = Path::from_str("bar/baz").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("./foo/bar/baz").unwrap());
+
+        let first_path = Path::from_str("foo").unwrap();
+        let second_path = Path::from_str("//bar/baz").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("//bar/baz").unwrap());
+
+        let first_path = Path::from_str("/foo").unwrap();
+        let second_path = Path::from_str("/bar/baz").unwrap();
+        assert_eq!(first_path.join(&second_path).canonical(), Path::from_str("/bar/baz").unwrap());
+    }
+
+    #[allow(clippy::cognitive_complexity)]
+    #[test]
     fn path_components() {
         let path = Path::from_str("/home/user/foo").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::RootDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.len(), 4);
+        assert_eq!(iterator.to_string().as_str(), "/home/user/foo");
+        assert_eq!(iterator.next(), Some(Component::RootDir));
+        assert_eq!(iterator.len(), 3);
+        assert_eq!(iterator.to_string().as_str(), "home/user/foo");
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.len(), 2);
+        assert_eq!(iterator.to_string().as_str(), "user/foo");
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
+        assert_eq!(iterator.len(), 1);
+        assert_eq!(iterator.to_string().as_str(), "foo");
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.len(), 0);
+        assert!(iterator.to_string().is_empty());
+        assert_eq!(iterator.next(), None);
+        assert_eq!(iterator.len(), 0);
 
         let path = Path::from_str("./foo//../baz").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::CurDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next(), Some(Component::ParentDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.next(), Some(Component::CurDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
+        assert_eq!(iterator.next(), None);
 
         let path = Path::from_str("foo/bar///..").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
-        assert_eq!(components.next(), Some(Component::ParentDir));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.len(), 3);
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), None);
 
         let path = Path::from_str("//home/foo/.././").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::DoubleSlashRootDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next(), Some(Component::ParentDir));
-        assert_eq!(components.next(), Some(Component::CurDir));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.len(), 5);
+        assert_eq!(iterator.next(), Some(Component::DoubleSlashRootDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), Some(Component::CurDir));
+        assert_eq!(iterator.next(), None);
     }
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn path_components_back() {
         let path = Path::from_str("/home/user/foo").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::RootDir));
-        assert_eq!(components.next_back(), None);
+        assert_eq!(iterator.len(), 4);
+        assert_eq!(iterator.to_string().as_str(), "/home/user/foo");
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.len(), 3);
+        assert_eq!(iterator.to_string().as_str(), "/home/user");
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
+        assert_eq!(iterator.len(), 2);
+        assert_eq!(iterator.to_string().as_str(), "/home");
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.len(), 1);
+        assert_eq!(iterator.to_string().as_str(), "/");
+        assert_eq!(iterator.next_back(), Some(Component::RootDir));
+        assert_eq!(iterator.len(), 0);
+        assert!(iterator.to_string().is_empty());
+        assert_eq!(iterator.next_back(), None);
+        assert_eq!(iterator.len(), 0);
 
         let path = Path::from_str("./foo//../baz").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::CurDir));
-        assert_eq!(components.next_back(), None);
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::CurDir));
+        assert_eq!(iterator.next_back(), None);
 
         let path = Path::from_str("foo/bar///..").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), None);
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), None);
 
         let path = Path::from_str("//home/foo/.././").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next_back(), Some(Component::CurDir));
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::DoubleSlashRootDir));
-        assert_eq!(components.next_back(), None);
+        assert_eq!(iterator.next_back(), Some(Component::CurDir));
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::DoubleSlashRootDir));
+        assert_eq!(iterator.next_back(), None);
     }
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn path_components_double_side() {
         let path = Path::from_str("/home/user/foo").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::RootDir));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
-        assert_eq!(components.next_back(), None);
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.len(), 4);
+        assert_eq!(iterator.to_string().as_str(), "/home/user/foo");
+        assert_eq!(iterator.next(), Some(Component::RootDir));
+        assert_eq!(iterator.len(), 3);
+        assert_eq!(iterator.to_string().as_str(), "home/user/foo");
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.len(), 2);
+        assert_eq!(iterator.to_string().as_str(), "home/user");
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.len(), 1);
+        assert_eq!(iterator.to_string().as_str(), "user");
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("user").unwrap())));
+        assert_eq!(iterator.len(), 0);
+        assert!(iterator.to_string().is_empty());
+        assert_eq!(iterator.next_back(), None);
+        assert_eq!(iterator.len(), 0);
+        assert_eq!(iterator.next(), None);
+        assert_eq!(iterator.len(), 0);
 
         let path = Path::from_str("./foo//../baz").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::CurDir));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.next(), Some(Component::CurDir));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("baz").unwrap())));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), None);
 
         let path = Path::from_str("foo/bar///..").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
-        assert_eq!(components.next(), None);
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::Normal(UnixStr::from_str("bar").unwrap())));
+        assert_eq!(iterator.next(), None);
 
         let path = Path::from_str("//home/foo/.././").unwrap();
         let mut components = path.components();
+        let mut iterator = components.into_iter();
 
-        assert_eq!(components.next(), Some(Component::DoubleSlashRootDir));
-        assert_eq!(components.next_back(), Some(Component::CurDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
-        assert_eq!(components.next_back(), Some(Component::ParentDir));
-        assert_eq!(components.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
-        assert_eq!(components.next_back(), None);
+        assert_eq!(iterator.next(), Some(Component::DoubleSlashRootDir));
+        assert_eq!(iterator.next_back(), Some(Component::CurDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("home").unwrap())));
+        assert_eq!(iterator.next_back(), Some(Component::ParentDir));
+        assert_eq!(iterator.next(), Some(Component::Normal(UnixStr::from_str("foo").unwrap())));
+        assert_eq!(iterator.next_back(), None);
+    }
+
+    #[test]
+    fn path_components_len() {
+        let path = Path::from_str("/home/user/foo").unwrap();
+        let mut components = path.components();
+        let iterator = components.into_iter();
+        assert_eq!(iterator.len(), 4);
+
+        let path = Path::from_str("./foo//../baz").unwrap();
+        let mut components = path.components();
+        let iterator = components.into_iter();
+        assert_eq!(iterator.len(), 4);
+
+        let path = Path::from_str("foo/bar///..").unwrap();
+        let mut components = path.components();
+        let iterator = components.into_iter();
+        assert_eq!(iterator.len(), 3);
+
+        let path = Path::from_str("//home/foo/.././").unwrap();
+        let mut components = path.components();
+        let iterator = components.into_iter();
+        assert_eq!(iterator.len(), 5);
     }
 }

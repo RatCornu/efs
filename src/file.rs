@@ -3,16 +3,17 @@
 //! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) and [the POSIX header of `<sys/stat.h>`](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html) for more informations.
 
 use alloc::boxed::Box;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use no_std_io::io::{Read, Seek, Write};
 
+use crate::path::{UnixStr, CUR_DIR, PARENT_DIR};
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Timespec, Uid};
 
 /// Minimal stat structure
 ///
 /// More informations on [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html#tag_13_62)
+#[derive(Debug, Clone)]
 pub struct Stat {
     /// Device ID of device containing file
     pub st_dev: Dev,
@@ -73,14 +74,14 @@ pub trait Regular: File + Read + Write + Seek {}
 /// An object that associates a filename with a file. Several directory entries can associate names with the same file.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_130).
-pub struct DirectoryEntry {
+pub struct DirectoryEntry<'path> {
     /// Name of the file pointed by this directory entry
     ///
     /// See more informations on valid filenames in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_170).
-    pub filename: String,
+    pub filename: UnixStr<'path>,
 
     /// File pointed by this directory entry.
-    pub file: Box<dyn File>,
+    pub file: Type,
 }
 
 /// A file that contains directory entries. No two directory entries in the same directory have the same name.
@@ -93,6 +94,34 @@ pub trait Directory: File {
     ///
     /// The result must contain at least the entries `.` (the current directory) and `..` (the parent directory).
     fn entries(&self) -> Vec<DirectoryEntry>;
+
+    /// Returns the entry with the given name.
+    #[inline]
+    fn entry(&self, name: UnixStr) -> Option<Type> {
+        let children = self.entries();
+        children.into_iter().find(|entry| entry.filename == name).map(|entry| entry.file)
+    }
+
+    /// Returns the parent directory.
+    ///
+    /// If `self` if the root directory, it must return itself.
+    #[inline]
+    fn parent(&self) -> Box<dyn Directory> {
+        let Some(Type::Directory(parent_entry)) = self.entry(PARENT_DIR.clone()) else {
+            unreachable!("`entries` must return `..` that corresponds to the parent directory.")
+        };
+        parent_entry
+    }
+}
+
+impl Clone for Box<dyn Directory> {
+    #[inline]
+    fn clone(&self) -> Self {
+        let Some(Type::Directory(parent_entry)) = self.entry(CUR_DIR.clone()) else {
+            unreachable!("`entries` must return `.` that corresponds to the current directory.")
+        };
+        parent_entry
+    }
 }
 
 /// A type of file with the property that when the file is encountered during pathname resolution, a string stored by the file is

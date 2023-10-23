@@ -36,6 +36,7 @@
     clippy::shadow_unrelated,
     clippy::todo,
     clippy::unreachable,
+    clippy::use_debug,
     clippy::unwrap_in_result,
     clippy::wildcard_in_or_patterns,
     const_item_mutation
@@ -54,12 +55,15 @@
     )
 )]
 #![feature(const_mut_refs)]
+#![feature(error_in_core)]
 #![feature(iter_advance_by)]
 #![feature(let_chains)]
+#![feature(trait_upcasting)]
 
 extern crate alloc;
 extern crate core;
 
+pub mod error;
 pub mod file;
 pub mod fs;
 pub mod path;
