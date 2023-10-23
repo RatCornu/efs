@@ -1,6 +1,6 @@
 [package]
 name = "efs"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["RatCornu <ratcornu@skaven.org>"]
 edition = "2021"
 description = "An OS and architecture independent implementation of some Unix filesystems in Rust."
