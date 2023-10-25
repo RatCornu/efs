@@ -74,7 +74,13 @@ pub trait FileSystem {
     ///
     /// Returns an [`NotFound`](no_std_io::io::ErrorKind) error if the given path does not leed to an existing path.
     ///
-    /// Returns an [`NotDir`](enum.FsError.html#variant.NotDir) error if one of the components of the file is not a directory.
+    /// Returns an [`NotDir`](FsError::NotDir) error if one of the components of the file is not a directory.
+    ///
+    /// Returns an [`Loop`](FsError::Loop) error if a loop is found during the symbolic link resolution.
+    ///
+    /// Returns an [`NameTooLong`](FsError::NameTooLong) error if the complete path contains more than [`PATH_MAX`] characters.
+    ///
+    /// Returns an [`NoEnt`](FsError::NoEnt) error if an encountered symlink points to a non-existing file.
     #[inline]
     fn pathname_resolution(&self, path: &Path, current_dir: Box<dyn Directory>, symlink_resolution: bool) -> Result<Type, Error>
     where
@@ -91,6 +97,11 @@ pub trait FileSystem {
             mut visited_symlinks: Vec<String>,
         ) -> Result<Type, Error> {
             let canonical_path = path.canonical();
+
+            if canonical_path.len() > PATH_MAX {
+                return Err(Error::Fs(FsError::NameTooLong(canonical_path.to_string())));
+            }
+
             let trailing_blackslash = canonical_path.as_unix_str().has_trailing_backslash();
             let mut symlink_encountered = None;
 
