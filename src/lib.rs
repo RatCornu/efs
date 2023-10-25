@@ -63,8 +63,11 @@
 extern crate alloc;
 extern crate core;
 
-pub mod error;
 pub mod file;
 pub mod fs;
 pub mod path;
 pub mod types;
+
+pub mod dev;
+
+pub mod ext2;

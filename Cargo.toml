@@ -17,6 +17,7 @@ name = "efs"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = { version = "1", default-features = false }
 derive_more = "0.99"
 itertools = { version = "0.11", default-features = false, features = ["use_alloc"] }
 no_std_io = "0.6.0"

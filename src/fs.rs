@@ -5,13 +5,14 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use core::error;
 use core::fmt::{self, Display};
 use core::str::FromStr;
 
+use anyhow::{anyhow, Error, Result};
 use itertools::{Itertools, Position};
 use no_std_io::io;
 
-use crate::error::Error;
 use crate::file::{Directory, Type};
 use crate::path::{Component, Path};
 
@@ -51,6 +52,8 @@ impl Display for FsError {
     }
 }
 
+impl error::Error for FsError {}
+
 /// A filesystem
 pub trait FileSystem {
     /// Returns the root directory of the filesystem.
@@ -82,7 +85,7 @@ pub trait FileSystem {
     ///
     /// Returns an [`NoEnt`](FsError::NoEnt) error if an encountered symlink points to a non-existing file.
     #[inline]
-    fn pathname_resolution(&self, path: &Path, current_dir: Box<dyn Directory>, symlink_resolution: bool) -> Result<Type, Error>
+    fn pathname_resolution(&self, path: &Path, current_dir: Box<dyn Directory>, symlink_resolution: bool) -> Result<Type>
     where
         Self: Sized,
     {
@@ -95,11 +98,11 @@ pub trait FileSystem {
             mut current_dir: Box<dyn Directory>,
             symlink_resolution: bool,
             mut visited_symlinks: Vec<String>,
-        ) -> Result<Type, Error> {
+        ) -> Result<Type> {
             let canonical_path = path.canonical();
 
             if canonical_path.len() > PATH_MAX {
-                return Err(Error::Fs(FsError::NameTooLong(canonical_path.to_string())));
+                return Err(anyhow!(FsError::NameTooLong(canonical_path.to_string())));
             }
 
             let trailing_blackslash = canonical_path.as_unix_str().has_trailing_backslash();
@@ -131,7 +134,7 @@ pub trait FileSystem {
                         let children = current_dir.entries();
                         let Some(entry) = children.into_iter().find(|entry| entry.filename == filename).map(|entry| entry.file)
                         else {
-                            return Err(Error::IO(io::ErrorKind::NotFound));
+                            return Err(anyhow!(io::Error::from(io::ErrorKind::NotFound)));
                         };
 
                         #[allow(clippy::wildcard_enum_match_arm)]
@@ -159,7 +162,7 @@ pub trait FileSystem {
                             {
                                 let pointed_file = symlink.pointed_file().to_owned();
                                 if pointed_file.is_empty() {
-                                    return Err(Error::Fs(FsError::NoEnt(filename.to_string())));
+                                    return Err(anyhow!(FsError::NoEnt(filename.to_string())));
                                 };
 
                                 symlink_encountered = Some(pointed_file);
@@ -169,7 +172,7 @@ pub trait FileSystem {
                                 return if (pos == Position::Last || pos == Position::Only) && !trailing_blackslash {
                                     Ok(entry)
                                 } else {
-                                    Err(Error::Fs(FsError::NotDir(filename.to_string())))
+                                    Err(anyhow!(FsError::NotDir(filename.to_string())))
                                 };
                             },
                         }
@@ -181,14 +184,11 @@ pub trait FileSystem {
                 None => Ok(Type::Directory(current_dir)),
                 Some(pointed_file) => {
                     if visited_symlinks.contains(&pointed_file) {
-                        return Err(Error::Fs(FsError::Loop(pointed_file)));
+                        return Err(anyhow!(FsError::Loop(pointed_file)));
                     }
                     visited_symlinks.push(pointed_file.clone());
 
-                    let pointed_path = match Path::from_str(&pointed_file) {
-                        Ok(path) => path,
-                        Err(path_error) => return Err(Error::Path(path_error)),
-                    };
+                    let pointed_path = Path::from_str(&pointed_file).map_err(Error::msg)?;
 
                     let complete_path = match TryInto::<Path>::try_into(&components) {
                         Ok(remaining_path) => pointed_path.join(&remaining_path),
@@ -196,7 +196,7 @@ pub trait FileSystem {
                     };
 
                     if complete_path.len() >= PATH_MAX {
-                        Err(Error::Fs(FsError::NameTooLong(complete_path.to_string())))
+                        Err(anyhow!(FsError::NameTooLong(complete_path.to_string())))
                     } else {
                         inner_resolution(fs, &complete_path, current_dir, symlink_resolution, visited_symlinks)
                     }
