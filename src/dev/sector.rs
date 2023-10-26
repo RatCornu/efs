@@ -3,7 +3,7 @@
 use core::fmt::{self, Debug};
 use core::marker::PhantomData;
 
-use anyhow::{anyhow, Error, Result};
+use super::error::DevError;
 
 /// General interface for sector sizes that are device-dependant.
 pub trait Size: Clone + Copy + PartialEq + Eq {
@@ -80,12 +80,15 @@ impl<S: Size> Address<S> {
     ///
     /// Returns an [`Error`](anyhow::Error)
     #[inline]
-    pub fn new(sector: u32, offset: i32) -> Result<Self> {
-        let real_sector = TryInto::<u32>::try_into(TryInto::<i32>::try_into(sector).map_err(Error::msg)? + (offset >> S::LOG_SIZE))
-            .map_err(Error::msg)?;
+    pub fn new(sector: u32, offset: i32) -> Result<Self, DevError> {
+        let real_signed_sector = TryInto::<i32>::try_into(sector)
+            .map_err(|_err| DevError::OutOfBounds("sector", sector.into(), (0_i128, 0x1000_i128)))?
+            + (offset >> S::LOG_SIZE);
+        let real_sector = TryInto::<u32>::try_into(real_signed_sector)
+            .map_err(|_err| DevError::OutOfBounds("sector", real_signed_sector.into(), (0_i128, u32::MAX.into())))?;
         let real_offset = offset.unsigned_abs() & S::OFFSET_MASK;
         if real_offset >= S::SIZE {
-            Err(anyhow!("Offset Out of Bounds: the offset {real_offset} is greater than the sector size {}", S::SIZE))
+            Err(DevError::OutOfBounds("offset", real_offset.into(), (0_i128, S::SIZE.into())))
         } else {
             Ok(Self {
                 sector: real_sector,
