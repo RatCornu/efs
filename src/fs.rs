@@ -142,7 +142,7 @@ pub trait FileSystem {
                         let children = current_dir.entries();
                         let Some(entry) = children.into_iter().find(|entry| entry.filename == filename).map(|entry| entry.file)
                         else {
-                            return Err(Error::IO(io::ErrorKind::NotFound));
+                            return Err(Error::IO(io::Error::new(io::ErrorKind::NotFound, "File not found")));
                         };
 
                         #[allow(clippy::wildcard_enum_match_arm)]

@@ -14,6 +14,7 @@
     missing_docs
 )]
 #![allow(
+    clippy::absolute_paths,
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
     clippy::blanket_clippy_restriction_lints,
@@ -63,6 +64,8 @@
 
 extern crate alloc;
 extern crate core;
+#[cfg(not(no_std))]
+extern crate std;
 
 pub mod error;
 pub mod file;

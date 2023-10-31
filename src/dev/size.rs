@@ -48,6 +48,13 @@ impl<S: Sector> PartialOrd for Size<S> {
     }
 }
 
+impl<S: Sector> From<Address<S>> for Size<S> {
+    #[inline]
+    fn from(value: Address<S>) -> Self {
+        Self::Bound(value)
+    }
+}
+
 impl<S: Sector> Size<S> {
     /// Returns the length of the device if it exists
     #[inline]

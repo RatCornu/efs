@@ -20,7 +20,7 @@ pub enum Error<E: error::Error> {
     Fs(FsError),
 
     /// I/O error
-    IO(io::ErrorKind),
+    IO(io::Error),
 
     /// Path error
     Path(PathError),
@@ -43,3 +43,10 @@ impl<E: error::Error> Display for Error<E> {
 }
 
 impl<E: error::Error> error::Error for Error<E> {}
+
+impl<E: error::Error> From<io::Error> for Error<E> {
+    #[inline]
+    fn from(value: io::Error) -> Self {
+        Self::IO(value)
+    }
+}
