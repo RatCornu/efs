@@ -26,3 +26,4 @@ regex = "1"
 [features]
 default = ["no_std"]
 no_std = []
+std = []

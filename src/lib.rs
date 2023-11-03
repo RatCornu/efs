@@ -2,7 +2,7 @@
 //!
 //! An OS and architecture independent implementation of some Unix filesystems in Rust.
 
-#![cfg_attr(all(not(test), feature = "no_std"), no_std)]
+#![cfg_attr(all(not(test), not(std), feature = "no_std"), no_std)]
 #![deny(
     clippy::complexity,
     clippy::correctness,
@@ -56,6 +56,8 @@
     )
 )]
 #![feature(const_mut_refs)]
+#![feature(cow_is_borrowed)]
+#![feature(doc_cfg)]
 #![feature(error_in_core)]
 #![feature(iter_advance_by)]
 #![feature(let_chains)]

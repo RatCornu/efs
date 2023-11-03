@@ -48,6 +48,16 @@ impl<S: Sector> PartialOrd for Size<S> {
     }
 }
 
+impl<S: Sector> PartialOrd<Address<S>> for Size<S> {
+    #[inline]
+    fn partial_cmp(&self, other: &Address<S>) -> Option<Ordering> {
+        match self {
+            Self::Bound(len) => len.partial_cmp(other),
+            Self::Unbounded => None,
+        }
+    }
+}
+
 impl<S: Sector> From<Address<S>> for Size<S> {
     #[inline]
     fn from(value: Address<S>) -> Self {

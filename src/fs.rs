@@ -33,7 +33,7 @@ pub enum FsError {
     /// Indicates that the given filename is not a [`Directory`]
     NotDir(String),
 
-    /// Indicates that the given filename is not a [`Directory`]
+    /// Indicates that the given filename is an symbolic link pointing at an empty string
     NoEnt(String),
 
     /// Indicates that a loop has been encountered during the given path resolution
