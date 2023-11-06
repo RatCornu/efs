@@ -2,6 +2,7 @@
 
 use alloc::borrow::{Cow, ToOwned};
 use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::mem;
@@ -227,7 +228,7 @@ macro_rules! impl_device {
                     let range = unsafe { usize::try_from(addr_range.start.index()).unwrap_unchecked() }..unsafe {
                         usize::try_from(addr_range.end.index()).unwrap_unchecked()
                     };
-                    // SAFETY:
+                    // SAFETY: it is checked above that the wanted elements exist
                     Ok(Slice::new(unsafe { <Self as AsRef<[T]>>::as_ref(self).get_unchecked(range) }, addr_start))
                 } else {
                     Err(Error::Device(DevError::OutOfBounds(
@@ -292,11 +293,12 @@ impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
                 (0, usize::MAX as i128),
             ))
         })?;
-        let mut slice = Vec::<u8>::with_capacity(len);
+        let mut slice = vec![0; len];
         let mut file = self.borrow_mut();
         file.seek(std::io::SeekFrom::Start(starting_addr.index()))
             .and_then(|_| file.read_exact(&mut slice))
             .map_err(Error::Other)?;
+
         Ok(Slice::new_owned(slice, starting_addr))
     }
 
@@ -311,6 +313,10 @@ impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
 
 #[cfg(test)]
 mod test {
+    use core::cell::RefCell;
+    use std::fs::{self, OpenOptions};
+
+    use super::sector::Size4096;
     use crate::dev::sector::{Address, Size512};
     use crate::dev::Device;
 
@@ -331,5 +337,36 @@ mod test {
         for (idx, &x) in device.iter().enumerate() {
             assert_eq!(x, usize::from((256..512).contains(&idx)));
         }
+    }
+
+    #[allow(clippy::missing_asserts_for_indexing)]
+    #[test]
+    fn device_file() {
+        fs::copy("./tests/device_file_1.txt", "./tests/device_file_1_copy.txt").unwrap();
+
+        let mut file_1 = RefCell::new(OpenOptions::new().read(true).write(true).open("./tests/device_file_1_copy.txt").unwrap());
+
+        let mut slice = file_1
+            .slice(Address::<Size4096>::new(0, 0).unwrap()..Address::<Size4096>::new(0, 13).unwrap())
+            .unwrap();
+
+        let word = slice.get_mut(6..=10).unwrap();
+        word[0] = b'e';
+        word[1] = b'a';
+        word[2] = b'r';
+        word[3] = b't';
+        word[4] = b'h';
+
+        let commit = slice.flush();
+        file_1.commit(commit).unwrap();
+
+        drop(file_1);
+
+        let file_1 = String::from_utf8(fs::read("./tests/device_file_1_copy.txt").unwrap()).unwrap();
+        let file_2 = String::from_utf8(fs::read("./tests/device_file_2.txt").unwrap()).unwrap();
+
+        assert_eq!(file_1, file_2);
+
+        fs::remove_file("./tests/device_file_1_copy.txt").unwrap();
     }
 }

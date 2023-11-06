@@ -227,21 +227,18 @@ impl<S: Sector> Sub for Address<S> {
 impl<S: Sector> Step for Address<S> {
     #[inline]
     fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        (start.sector() <= end.sector()).then_some((end.sector() - start.sector()) as usize)
+        // SAFETY: it is not possible to manipulate addresses with a higher bit number than the device's
+        (start.sector() <= end.sector()).then_some(unsafe { (end.index() - start.index()).try_into().unwrap_unchecked() })
     }
 
     #[inline]
     fn forward_checked(start: Self, count: usize) -> Option<Self> {
-        ((start.sector() as usize) < (S::SIZE as usize - count))
-            .then(|| Self::new(start.sector() + TryInto::<u32>::try_into(count).ok()?, 0).ok())
-            .flatten()
+        Some(start + Self::try_from(count).ok()?)
     }
 
     #[inline]
     fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        ((start.sector() as usize) >= count)
-            .then(|| Self::new(start.sector() - TryInto::<u32>::try_into(count).ok()?, 0).ok())
-            .flatten()
+        Some(start - Self::try_from(count).ok()?)
     }
 }
 
