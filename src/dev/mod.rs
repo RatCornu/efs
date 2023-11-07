@@ -98,10 +98,11 @@ impl<'mem, T: Clone, S: Sector> Slice<'mem, T, S> {
         }
     }
 
-    /// Flushes the write operations onto the slice and returns a [`Commit`]ed object.
+    /// Commits the write operations onto the slice and returns a [`Commit`]ed object.
     #[inline]
-    pub fn flush(&mut self) -> Commit<T, S> {
-        Commit::new(self.inner.clone().to_vec(), self.starting_addr)
+    #[must_use]
+    pub fn commit(self) -> Commit<T, S> {
+        Commit::new(self.inner.into_owned(), self.starting_addr)
     }
 }
 
@@ -330,7 +331,7 @@ mod test {
         .unwrap();
         slice.iter_mut().for_each(|element| *element = 1);
 
-        let commit = slice.flush();
+        let commit = slice.commit();
 
         assert!(Device::<usize, Size512, std::io::Error>::commit(&mut device, commit).is_ok());
 
@@ -357,7 +358,7 @@ mod test {
         word[3] = b't';
         word[4] = b'h';
 
-        let commit = slice.flush();
+        let commit = slice.commit();
         file_1.commit(commit).unwrap();
 
         drop(file_1);
