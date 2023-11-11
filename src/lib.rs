@@ -51,6 +51,7 @@
         clippy::indexing_slicing,
         clippy::non_ascii_literal,
         clippy::too_many_lines,
+        clippy::undocumented_unsafe_blocks,
         clippy::unwrap_used,
         clippy::wildcard_imports
     )
