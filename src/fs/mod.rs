@@ -10,11 +10,12 @@ use core::fmt::{self, Display};
 use core::str::FromStr;
 
 use itertools::{Itertools, Position};
-use no_std_io::io;
 
 use crate::error::Error;
 use crate::file::{Directory, Type};
 use crate::path::{Component, Path};
+
+pub mod ext2;
 
 /// Maximal length for a path.
 ///
@@ -27,16 +28,19 @@ pub const PATH_MAX: usize = 4_096;
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum FsError {
-    /// Indicates that the given [`Path`] is too long to be resolved
+    /// Indicates that the given [`Path`] is too long to be resolved.
     NameTooLong(String),
 
-    /// Indicates that the given filename is not a [`Directory`]
+    /// Indicates that the given filename is not a [`Directory`].
     NotDir(String),
 
-    /// Indicates that the given filename is an symbolic link pointing at an empty string
+    /// Indicates that the given filename is an symbolic link pointing at an empty string.
     NoEnt(String),
 
-    /// Indicates that a loop has been encountered during the given path resolution
+    /// Indicates that the given filename has not been found.
+    NotFound(String),
+
+    /// Indicates that a loop has been encountered during the given path resolution.
     Loop(String),
 }
 
@@ -48,15 +52,16 @@ impl Display for FsError {
             Self::NameTooLong(path) => write!(formatter, "Name too long: \"{path}\" is too long to be resolved"),
             Self::NotDir(filename) => write!(formatter, "Not a Directory: \"{filename}\" is not a directory"),
             Self::NoEnt(filename) => write!(formatter, "No entry: \"{filename}\" is an symbolic link pointing at an empty string"),
+            Self::NotFound(filename) => write!(formatter, "Not found: \"{filename}\" has not been found"),
         }
     }
 }
 
 impl error::Error for FsError {}
 
-/// A filesystem
+/// A filesystem.
 pub trait FileSystem {
-    /// Error type associated with the filesystem
+    /// Error type associated with the filesystem.
     type Error: error::Error;
 
     /// Returns the root directory of the filesystem.
@@ -142,7 +147,7 @@ pub trait FileSystem {
                         let children = current_dir.entries();
                         let Some(entry) = children.into_iter().find(|entry| entry.filename == filename).map(|entry| entry.file)
                         else {
-                            return Err(Error::IO(io::Error::new(io::ErrorKind::NotFound, "File not found")));
+                            return Err(Error::Fs(FsError::NotFound(filename.to_string())));
                         };
 
                         #[allow(clippy::wildcard_enum_match_arm)]

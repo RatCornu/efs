@@ -70,12 +70,9 @@ extern crate core;
 #[cfg(not(no_std))]
 extern crate std;
 
+pub mod dev;
 pub mod error;
 pub mod file;
 pub mod fs;
 pub mod path;
 pub mod types;
-
-pub mod dev;
-
-pub mod ext2;
