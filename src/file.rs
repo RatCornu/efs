@@ -1,6 +1,6 @@
 //! General interface for Unix files
 //!
-//! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) and [the POSIX header of `<sys/stat.h>`](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html) for more informations.
+//! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) and [the POSIX header of `<sys/stat.h>`](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html) for more information.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -12,7 +12,7 @@ use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Timespec, U
 
 /// Minimal stat structure
 ///
-/// More informations on [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html#tag_13_62)
+/// More information on [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html#tag_13_62)
 #[derive(Debug, Clone)]
 pub struct Stat {
     /// Device ID of device containing file
@@ -62,7 +62,7 @@ pub struct Stat {
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_164).
 pub trait File {
-    /// Retrieves informations about this file.
+    /// Retrieves information about this file.
     fn stat(&self) -> Stat;
 }
 
@@ -77,7 +77,7 @@ pub trait Regular: File + Read + Write + Seek {}
 pub struct DirectoryEntry<'path> {
     /// Name of the file pointed by this directory entry
     ///
-    /// See more informations on valid filenames in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_170).
+    /// See more information on valid filenames in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_170).
     pub filename: UnixStr<'path>,
 
     /// File pointed by this directory entry.
@@ -156,7 +156,6 @@ pub trait BlockDevice: File + Read + Write {}
 pub trait Socket: File + Read + Write {}
 
 /// Enumeration of possible file types in a standard UNIX-like filesystem
-#[non_exhaustive]
 pub enum Type {
     /// Storage unit of a filesystem
     Regular(Box<dyn Regular>),

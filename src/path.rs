@@ -40,7 +40,7 @@ impl error::Error for PathError {}
 
 /// A general structure to implement paths.
 ///
-/// A [`UnixStr`] cannot be empty nor contain <NUL> character ('\0')! It is guaranteed at creation time.
+/// A [`UnixStr`] cannot be empty nor contain `<NUL>` character ('\0')! It is guaranteed at creation time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnixStr<'path>(Cow<'path, str>);
 
@@ -122,7 +122,7 @@ impl<'path> From<Component<'path>> for UnixStr<'path> {
 /// separated by `/`. A pathname can optionally contain one or more trailing `/`. Multiple successive `/` characters are considered
 /// to be the same as one `/`, except for the case of exactly two leading `/`.
 ///
-/// See [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_271) for more informations.
+/// See [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_271) for more information.
 #[derive(Debug, Clone)]
 #[cfg_attr(not(doc), repr(transparent))]
 pub struct Path<'path> {

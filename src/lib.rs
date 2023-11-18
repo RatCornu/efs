@@ -59,6 +59,7 @@
 #![feature(const_mut_refs)]
 #![feature(cow_is_borrowed)]
 #![feature(doc_cfg)]
+#![feature(doc_auto_cfg)]
 #![feature(error_in_core)]
 #![feature(iter_advance_by)]
 #![feature(let_chains)]

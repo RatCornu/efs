@@ -23,6 +23,14 @@ pub enum Ext2Error {
     ///
     /// See [this table](https://wiki.osdev.org/Ext2#Error_Handling_Methods) for reference.
     InvalidErrorHandlingMethod(u16),
+
+    /// Given code does not correspond to a valid compression algorithm.
+    ///
+    /// See [this table](https://www.nongnu.org/ext2-doc/ext2.html#s-algo-bitmap) for reference.
+    InvalidCompressionAlgorithm(u32),
+
+    /// Tried to access an extended field in a basic superblock.
+    NoExtendedFields,
 }
 
 impl Display for Ext2Error {
@@ -34,6 +42,13 @@ impl Display for Ext2Error {
             Self::InvalidErrorHandlingMethod(method) => {
                 write!(formatter, "Invalid Error Handling Method: {method} was found while 1, 2 or 3 was expected")
             },
+            Self::InvalidCompressionAlgorithm(id) => {
+                write!(formatter, "Invalid Compression Algorithm: {id} was found while 0, 1, 2, 3 or 4 was expected")
+            },
+            Self::NoExtendedFields => write!(
+                formatter,
+                "No Extend Field: tried to access an extended field in a superblock that only contains basic fields"
+            ),
         }
     }
 }

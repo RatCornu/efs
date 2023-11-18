@@ -352,7 +352,6 @@ impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
 #[cfg(not(no_std))]
-#[doc(cfg(feature = "std"))]
 impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
     type Error = Error<std::io::Error>;
 
@@ -378,7 +377,7 @@ impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
         let mut file = self.borrow_mut();
         file.seek(std::io::SeekFrom::Start(starting_addr.index().try_into().expect("Could not convert `usize` to `u64`")))
             .and_then(|_| file.read_exact(&mut slice))
-            .map_err(Error::Other)?;
+            .expect("Could not seek/read on the given file");
 
         Ok(Slice::new_owned(slice, starting_addr))
     }
@@ -388,7 +387,8 @@ impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
         let mut file = self.borrow_mut();
         file.seek(std::io::SeekFrom::Start(commit.addr().index().try_into().expect("Could not convert `usize` to `u64`")))
             .and_then(|_| file.write_all(commit.as_ref()))
-            .map_err(Error::Other)
+            .expect("Could not seek/write on the given file");
+        Ok(())
     }
 }
 

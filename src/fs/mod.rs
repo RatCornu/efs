@@ -5,16 +5,16 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use core::error;
-use core::fmt::{self, Display};
 use core::str::FromStr;
 
 use itertools::{Itertools, Position};
 
 use crate::error::Error;
 use crate::file::{Directory, Type};
+use crate::fs::error::FsError;
 use crate::path::{Component, Path};
 
+pub mod error;
 pub mod ext2;
 
 /// Maximal length for a path.
@@ -24,45 +24,10 @@ pub mod ext2;
 /// This value is the same as the one defined in [the linux's `limits.h` header](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/include/uapi/linux/limits.h?h=v6.5.8#n13).
 pub const PATH_MAX: usize = 4_096;
 
-/// Enumeration of possible errors encountered with [`FileSystem`]s' manipulation.
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug)]
-pub enum FsError {
-    /// Indicates that the given [`Path`] is too long to be resolved.
-    NameTooLong(String),
-
-    /// Indicates that the given filename is not a [`Directory`].
-    NotDir(String),
-
-    /// Indicates that the given filename is an symbolic link pointing at an empty string.
-    NoEnt(String),
-
-    /// Indicates that the given filename has not been found.
-    NotFound(String),
-
-    /// Indicates that a loop has been encountered during the given path resolution.
-    Loop(String),
-}
-
-impl Display for FsError {
-    #[inline]
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Loop(path) => write!(formatter, "Loop: a loop has been encountered during the resolution of \"{path}\""),
-            Self::NameTooLong(path) => write!(formatter, "Name too long: \"{path}\" is too long to be resolved"),
-            Self::NotDir(filename) => write!(formatter, "Not a Directory: \"{filename}\" is not a directory"),
-            Self::NoEnt(filename) => write!(formatter, "No entry: \"{filename}\" is an symbolic link pointing at an empty string"),
-            Self::NotFound(filename) => write!(formatter, "Not found: \"{filename}\" has not been found"),
-        }
-    }
-}
-
-impl error::Error for FsError {}
-
 /// A filesystem.
 pub trait FileSystem {
     /// Error type associated with the filesystem.
-    type Error: error::Error;
+    type Error: core::error::Error;
 
     /// Returns the root directory of the filesystem.
     fn root(&self) -> Box<dyn Directory>;
@@ -71,7 +36,7 @@ pub trait FileSystem {
     ///
     /// If you do not have any idea of what this is, you are probably looking for [`root`](trait.FileSystem.html#tymethod.root).
     ///
-    /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more informations.
+    /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more information.
     fn double_slash_root(&self) -> Box<dyn Directory>;
 
     /// Performs a pathname resolution as described in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13).
@@ -105,7 +70,7 @@ pub trait FileSystem {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn inner_resolution<E: error::Error>(
+        fn inner_resolution<E: core::error::Error>(
             fs: &impl FileSystem,
             path: &Path,
             mut current_dir: Box<dyn Directory>,
