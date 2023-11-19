@@ -352,8 +352,8 @@ impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
 #[cfg(not(no_std))]
-impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
-    type Error = Error<std::io::Error>;
+impl<S: Sector, E: core::error::Error> Device<u8, S, E> for RefCell<File> {
+    type Error = Error<E>;
 
     #[inline]
     fn size(&self) -> Size<S> {
@@ -395,6 +395,7 @@ impl<S: Sector> Device<u8, S, std::io::Error> for RefCell<File> {
 #[cfg(test)]
 mod test {
     use core::cell::RefCell;
+    use core::fmt::Display;
     use core::mem::{self, size_of};
     use core::ptr::addr_of;
     use core::slice;
@@ -403,6 +404,17 @@ mod test {
     use super::sector::Size4096;
     use crate::dev::sector::{Address, Size512};
     use crate::dev::Device;
+
+    #[derive(Debug)]
+    struct Error;
+
+    impl Display for Error {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(formatter, "")
+        }
+    }
+
+    impl core::error::Error for Error {}
 
     #[test]
     fn device_generic() {
@@ -426,11 +438,18 @@ mod test {
     #[allow(clippy::missing_asserts_for_indexing)]
     #[test]
     fn device_file() {
-        fs::copy("./tests/device_file_1.txt", "./tests/device_file_1_copy.txt").unwrap();
+        fs::copy("./tests/dev/device_file_1.txt", "./tests/dev/device_file_1_copy.txt").unwrap();
 
-        let mut file_1 = RefCell::new(OpenOptions::new().read(true).write(true).open("./tests/device_file_1_copy.txt").unwrap());
+        let mut file_1 = RefCell::new(
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("./tests/dev/device_file_1_copy.txt")
+                .unwrap(),
+        );
 
-        let mut slice = file_1.slice(Address::<Size4096>::new(0, 0)..Address::<Size4096>::new(0, 13)).unwrap();
+        let mut slice =
+            Device::<u8, Size4096, Error>::slice(&file_1, Address::<Size4096>::new(0, 0)..Address::<Size4096>::new(0, 13)).unwrap();
 
         let word = slice.get_mut(6..=10).unwrap();
         word[0] = b'e';
@@ -440,16 +459,16 @@ mod test {
         word[4] = b'h';
 
         let commit = slice.commit();
-        file_1.commit(commit).unwrap();
+        Device::<u8, Size4096, Error>::commit(&mut file_1, commit).unwrap();
 
         drop(file_1);
 
-        let file_1 = String::from_utf8(fs::read("./tests/device_file_1_copy.txt").unwrap()).unwrap();
-        let file_2 = String::from_utf8(fs::read("./tests/device_file_2.txt").unwrap()).unwrap();
+        let file_1 = String::from_utf8(fs::read("./tests/dev/device_file_1_copy.txt").unwrap()).unwrap();
+        let file_2 = String::from_utf8(fs::read("./tests/dev/device_file_2.txt").unwrap()).unwrap();
 
         assert_eq!(file_1, file_2);
 
-        fs::remove_file("./tests/device_file_1_copy.txt").unwrap();
+        fs::remove_file("./tests/dev/device_file_1_copy.txt").unwrap();
     }
 
     #[test]

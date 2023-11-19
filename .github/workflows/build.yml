@@ -1,6 +1,6 @@
 name: Build
 
-on: [push, workflow_dispatch]
+on: [pull_request, workflow_dispatch]
 
 concurrency:
   group: ${{ github.base_ref }}-build
@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@master
+      - name: Checkout LFS objects
+        run: git lfs pull
       - name: Deny check
         uses: EmbarkStudios/cargo-deny-action@v1
       - name: Format check

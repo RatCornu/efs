@@ -243,7 +243,7 @@ impl Base {
     /// It is equal to the round up of the total number of blocks divided by the number of blocks per block group.
     #[inline]
     #[must_use]
-    pub const fn total_block_groups(&self) -> usize {
+    pub const fn block_group_count(&self) -> usize {
         self.blocks_count.div_ceil(self.blocks_per_group) as usize
     }
 
@@ -252,6 +252,13 @@ impl Base {
     #[must_use]
     pub const fn block_size(&self) -> usize {
         1024 << self.log_block_size
+    }
+
+    /// Returns the size of a fragment in the filesystem described by this superblock.
+    #[inline]
+    #[must_use]
+    pub const fn frag_size(&self) -> usize {
+        1024 << self.log_frag_size
     }
 
     /// Returns the state of this filesystem.
@@ -326,6 +333,7 @@ pub struct ExtendedFields {
     pub prealloc_dir_blocks: u8,
 
     /// Alignement
+    #[doc(hidden)]
     pub unused_1: u16,
 
     /// Journal ID (same style as the File system ID above)
@@ -347,6 +355,7 @@ pub struct ExtendedFields {
     pub def_hash_version: u8,
 
     /// Padding
+    #[doc(hidden)]
     pub unused_2: [u8; 3],
 
     /// Default mount options for this file system
@@ -506,7 +515,9 @@ impl Superblock {
     ///
     /// # Errors
     ///
-    /// TODO
+    /// Returns [`Ext2Error::BadMagic`] if the magic number found in the superblock is not equal to [`EXT2_SIGNATURE`].
+    ///
+    /// Returns an [`Error`] if the device could not be read.
     #[inline]
     pub fn parse<S: Sector, D: Device<u8, S, Ext2Error>>(device: &D) -> Result<Self, Error<Ext2Error>> {
         // SAFETY: all the possible failures are catched in the resulting error
@@ -533,6 +544,26 @@ impl Superblock {
         }
     }
 
+    /// Returns the base fields of the superblock.
+    #[inline]
+    #[must_use]
+    pub const fn base(&self) -> &Base {
+        match self {
+            Self::Basic(base) => base,
+            Self::Extended(base, _) => base,
+        }
+    }
+
+    /// Returns the extended fields of the superblock (if they exist).
+    #[inline]
+    #[must_use]
+    pub const fn extended_fields(&self) -> Option<&ExtendedFields> {
+        match self {
+            Self::Basic(_) => None,
+            Self::Extended(_, extended_fields) => Some(extended_fields),
+        }
+    }
+
     /// Returns the state of this filesystem.
     ///
     /// # Errors
@@ -540,9 +571,7 @@ impl Superblock {
     /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
     #[inline]
     pub fn state(&self) -> Result<State, Ext2Error> {
-        match self {
-            Self::Basic(base) | Self::Extended(base, _) => base.state(),
-        }
+        self.base().state()
     }
 
     /// Returns the error handling method of this filesystem.
@@ -552,18 +581,14 @@ impl Superblock {
     /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
     #[inline]
     pub fn error_handling_method(&self) -> Result<ErrorHandlingMethod, Ext2Error> {
-        match self {
-            Self::Basic(base) | Self::Extended(base, _) => base.error_handling_method(),
-        }
+        self.base().error_handling_method()
     }
 
     /// Returns the Operating system from which the filesystem on this volume was created.
     #[inline]
     #[must_use]
     pub fn creator_operating_system(&self) -> OperatingSystem {
-        match self {
-            Self::Basic(base) | Self::Extended(base, _) => base.creator_operating_system(),
-        }
+        self.base().creator_operating_system()
     }
 
     /// Returns the number of block groups.
@@ -571,19 +596,22 @@ impl Superblock {
     /// It is equal to the round up of the total number of blocks divided by the number of blocks per block group.
     #[inline]
     #[must_use]
-    pub const fn total_block_groups(&self) -> usize {
-        match self {
-            Self::Basic(base) | Self::Extended(base, _) => base.total_block_groups(),
-        }
+    pub const fn block_group_count(&self) -> usize {
+        self.base().block_group_count()
     }
 
     /// Returns the size of a block in the filesystem described by this superblock.
     #[inline]
     #[must_use]
     pub const fn block_size(&self) -> usize {
-        match self {
-            Self::Basic(base) | Self::Extended(base, _) => base.block_size(),
-        }
+        self.base().block_size()
+    }
+
+    /// Returns the size of a fragment in the filesystem described by this superblock.
+    #[inline]
+    #[must_use]
+    pub const fn frag_size(&self) -> usize {
+        self.base().frag_size()
     }
 
     /// Returns the first non-reserved inode in file system.
@@ -591,7 +619,6 @@ impl Superblock {
     #[must_use]
     pub const fn first_non_reserved_inode(&self) -> u32 {
         match self {
-            // TODO
             Self::Basic(_) => 11,
             Self::Extended(_, extended_fields) => extended_fields.first_ino,
         }
@@ -645,13 +672,37 @@ impl Superblock {
 
 #[cfg(test)]
 mod test {
+    use core::cell::RefCell;
     use core::mem;
+    use std::fs::File;
 
+    use super::Superblock;
+    use crate::dev::sector::Size4096;
     use crate::fs::ext2::superblock::{Base, ExtendedFields};
 
     #[test]
     fn structs_size() {
         assert_eq!(mem::size_of::<Base>(), 84);
-        assert_eq!(mem::size_of::<Base>() + mem::size_of::<ExtendedFields>(), 236);
+        assert_eq!(mem::size_of::<Base>() + mem::size_of::<ExtendedFields>(), 264);
+    }
+
+    #[test]
+    fn basic_superblock() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        assert!(!superblock.is_extended());
+        let base = superblock.base();
+        let major_version = base.rev_level;
+        assert_eq!(major_version, 0);
+    }
+
+    #[test]
+    fn extended_superblock() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        assert!(superblock.is_extended());
+        let base = superblock.base();
+        let major_version = base.rev_level;
+        assert_eq!(major_version, 1);
     }
 }
