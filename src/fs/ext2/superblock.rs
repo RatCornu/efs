@@ -20,7 +20,10 @@ pub const EXT2_SIGNATURE: u16 = 0xef53;
 /// As described [here](https://www.nongnu.org/ext2-doc/ext2.html#superblock), the superblock **always** located at byte offset 1024 from the beginning of the file, block device or partition.
 pub const SUPERBLOCK_START_BYTE: usize = 1024;
 
-/// Base Superblock Fields
+/// Size in bytes of the superblock with reserved bytes.
+pub const SUPERBLOCK_SIZE: usize = 1024;
+
+/// Base Superblock Fields.
 ///
 /// See the [`ExtendedFields`] struct for the extended fields of the superblock (if the [`major
 /// version`](struct.Base.html#structfield.rev_level) is greater than or equal to 1).
@@ -243,21 +246,21 @@ impl Base {
     /// It is equal to the round up of the total number of blocks divided by the number of blocks per block group.
     #[inline]
     #[must_use]
-    pub const fn block_group_count(&self) -> usize {
-        self.blocks_count.div_ceil(self.blocks_per_group) as usize
+    pub const fn block_group_count(&self) -> u32 {
+        self.blocks_count.div_ceil(self.blocks_per_group)
     }
 
     /// Returns the size of a block in the filesystem described by this superblock.
     #[inline]
     #[must_use]
-    pub const fn block_size(&self) -> usize {
+    pub const fn block_size(&self) -> u32 {
         1024 << self.log_block_size
     }
 
     /// Returns the size of a fragment in the filesystem described by this superblock.
     #[inline]
     #[must_use]
-    pub const fn frag_size(&self) -> usize {
+    pub const fn frag_size(&self) -> u32 {
         1024 << self.log_frag_size
     }
 
@@ -289,7 +292,7 @@ impl Base {
     }
 }
 
-/// Extended Superblock Fields of the [`Base`]
+/// Extended Superblock Fields of the [`Base`].
 ///
 /// These fields are only present if [`major`](struct.Base.html#structfield.rev_level) version is greater than or equal to
 /// 1.
@@ -596,21 +599,21 @@ impl Superblock {
     /// It is equal to the round up of the total number of blocks divided by the number of blocks per block group.
     #[inline]
     #[must_use]
-    pub const fn block_group_count(&self) -> usize {
+    pub const fn block_group_count(&self) -> u32 {
         self.base().block_group_count()
     }
 
     /// Returns the size of a block in the filesystem described by this superblock.
     #[inline]
     #[must_use]
-    pub const fn block_size(&self) -> usize {
+    pub const fn block_size(&self) -> u32 {
         self.base().block_size()
     }
 
     /// Returns the size of a fragment in the filesystem described by this superblock.
     #[inline]
     #[must_use]
-    pub const fn frag_size(&self) -> usize {
+    pub const fn frag_size(&self) -> u32 {
         self.base().frag_size()
     }
 
@@ -621,6 +624,16 @@ impl Superblock {
         match self {
             Self::Basic(_) => 11,
             Self::Extended(_, extended_fields) => extended_fields.first_ino,
+        }
+    }
+
+    /// Returns the size of each inode in bytes.
+    #[inline]
+    #[must_use]
+    pub const fn inode_size(&self) -> u16 {
+        match self {
+            Self::Basic(_) => 128,
+            Self::Extended(_, extended_fields) => extended_fields.inode_size,
         }
     }
 
@@ -681,7 +694,7 @@ mod test {
     use crate::fs::ext2::superblock::{Base, ExtendedFields};
 
     #[test]
-    fn structs_size() {
+    fn struct_size() {
         assert_eq!(mem::size_of::<Base>(), 84);
         assert_eq!(mem::size_of::<Base>() + mem::size_of::<ExtendedFields>(), 264);
     }

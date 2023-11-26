@@ -100,6 +100,19 @@ impl<S: Sector> Address<S> {
         }
     }
 
+    /// Returns a new [`Address`] from its index.
+    ///
+    /// This function is equivalent to the [`From<usize>`](struct.Address.html#impl-From<usize>-for-Address<S>) implementation but
+    /// with a `const fn`.
+    #[inline]
+    #[must_use]
+    pub const fn from_index(index: usize) -> Self {
+        Self {
+            index,
+            _phantom: PhantomData,
+        }
+    }
+
     /// Returns the index of this address, which corresponds to its offset from the start of the device.
     #[inline]
     #[must_use]
@@ -141,6 +154,15 @@ impl<S: Sector> TryFrom<u64> for Address<S> {
     }
 }
 
+impl<S: Sector> TryFrom<u32> for Address<S> {
+    type Error = <usize as TryFrom<u64>>::Error;
+
+    #[inline]
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(Self::from(TryInto::<usize>::try_into(value)?))
+    }
+}
+
 impl<S: Sector> Add for Address<S> {
     type Output = Self;
 
@@ -150,6 +172,15 @@ impl<S: Sector> Add for Address<S> {
             index: self.index + rhs.index,
             _phantom: PhantomData,
         }
+    }
+}
+
+impl<S: Sector> Add<usize> for Address<S> {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: usize) -> Self::Output {
+        self + Self::from(rhs)
     }
 }
 
@@ -165,6 +196,15 @@ impl<S: Sector> Sub for Address<S> {
                 .expect("Tried to compute an address with a negative offset"),
             _phantom: PhantomData,
         }
+    }
+}
+
+impl<S: Sector> Sub<usize> for Address<S> {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: usize) -> Self::Output {
+        self - Self::from(rhs)
     }
 }
 

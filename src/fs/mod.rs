@@ -131,8 +131,7 @@ pub trait FileSystem {
                             //   1. This is the last pathname component of the pathname.
                             //   2. The pathname has no trailing <slash>.
                             //   3. The function is required to act on the symbolic link itself, or certain arguments direct that
-                            //      the
-                            //    function act on the symbolic link itself.
+                            //      the function act on the symbolic link itself.
                             Type::SymbolicLink(symlink)
                                 if (pos != Position::Last && pos != Position::Only)
                                     || !trailing_blackslash

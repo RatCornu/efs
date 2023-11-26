@@ -31,6 +31,12 @@ pub enum Ext2Error {
 
     /// Tried to access an extended field in a basic superblock.
     NoExtendedFields,
+
+    /// Tried to access a non-existing block group.
+    NonExistingBlockGroup(u32),
+
+    /// Tried to access a non-existing inode.
+    NonExistingInode(u32),
 }
 
 impl Display for Ext2Error {
@@ -49,6 +55,12 @@ impl Display for Ext2Error {
                 formatter,
                 "No Extend Field: tried to access an extended field in a superblock that only contains basic fields"
             ),
+            Self::NonExistingBlockGroup(nth) => {
+                write!(formatter, "Non Existing Block Group: tried to access the {nth} block group which does not exist")
+            },
+            Self::NonExistingInode(nth) => {
+                write!(formatter, "Non Existing Inode: tried to access the {nth} inode which does not exist")
+            },
         }
     }
 }
