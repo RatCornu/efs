@@ -346,4 +346,15 @@ mod test {
         let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
         assert!(Inode::parse::<Size4096, _>(&file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
     }
+
+    #[test]
+    fn failed_parse() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        assert!(Inode::parse::<Size4096, _>(&file, &superblock, 0).is_err());
+
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        assert!(Inode::parse::<Size4096, _>(&file, &superblock, superblock.base().inodes_count + 1).is_err());
+    }
 }

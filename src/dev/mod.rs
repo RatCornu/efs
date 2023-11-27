@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use alloc::{slice, vec};
 use core::cell::RefCell;
 use core::iter::Step;
-use core::mem;
+use core::mem::{size_of, transmute_copy};
 use core::ops::{Deref, DerefMut, Range};
 use core::ptr::{addr_of, slice_from_raw_parts};
 use std::fs::File;
@@ -121,17 +121,14 @@ impl<'mem, S: Sector> Slice<'mem, u8, S> {
     #[inline]
     #[must_use]
     pub unsafe fn cast<T: Copy>(&self) -> T {
-        assert!(
-            self.inner.len() >= mem::size_of::<T>(),
-            "The length of the device slice is not great enough to contain an object T"
-        );
-        mem::transmute_copy(self.inner.as_ptr().as_ref().expect("Could not read the pointer of the slice"))
+        assert!(self.inner.len() >= size_of::<T>(), "The length of the device slice is not great enough to contain an object T");
+        transmute_copy(self.inner.as_ptr().as_ref().expect("Could not read the pointer of the slice"))
     }
 
     /// Creates a [`Slice`] from any [`Copy`] object
     #[inline]
     pub fn from<T: Copy>(object: T, starting_addr: Address<S>) -> Self {
-        let len = mem::size_of::<T>();
+        let len = size_of::<T>();
         let ptr = addr_of!(object).cast::<u8>();
         // SAFETY: the pointer is well-formed since it has been created above
         let inner_opt = unsafe { slice_from_raw_parts(ptr, len).as_ref::<'mem>() };
@@ -221,7 +218,7 @@ pub trait Device<T: Copy, S: Sector, E: core::error::Error> {
     /// Must verifies the safety conditions of [`core::ptr::read`].
     #[inline]
     unsafe fn read_at<O: Copy>(&self, starting_addr: Address<S>) -> Result<O, Error<E>> {
-        let length = mem::size_of::<O>();
+        let length = size_of::<O>();
         let range = starting_addr
             ..Address::<S>::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
                 "address",
@@ -250,17 +247,17 @@ pub trait Device<T: Copy, S: Sector, E: core::error::Error> {
     ///
     /// # Safety
     ///
-    /// Must ensure that `mem::size_of::<O>() % mem::size_of::<T>() == 0`.
+    /// Must ensure that `size_of::<O>() % size_of::<T>() == 0`.
     #[inline]
     unsafe fn write_at<O: Copy>(&mut self, starting_addr: Address<S>, object: O) -> Result<(), Error<E>> {
-        let length = mem::size_of::<O>();
+        let length = size_of::<O>();
         assert_eq!(
-            length % mem::size_of::<T>(),
+            length % size_of::<T>(),
             0,
             "Cannot write an element whose memory size is not divisible by the memory size of the elements of the device"
         );
         assert!(length > 0, "Cannot write a 0-byte object on a device");
-        let object_slice = slice::from_raw_parts(addr_of!(object).cast::<T>(), length / mem::size_of::<T>());
+        let object_slice = slice::from_raw_parts(addr_of!(object).cast::<T>(), length / size_of::<T>());
 
         let range = starting_addr
             ..Address::<S>::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
@@ -396,7 +393,7 @@ impl<S: Sector, E: core::error::Error> Device<u8, S, E> for RefCell<File> {
 mod test {
     use core::cell::RefCell;
     use core::fmt::Display;
-    use core::mem::{self, size_of};
+    use core::mem::size_of;
     use core::ptr::addr_of;
     use core::slice;
     use std::fs::{self, OpenOptions};
@@ -490,7 +487,7 @@ mod test {
             nb_3: 0x1234,
             nb_4: 0x1234_5678_90ab_cdef,
         };
-        let test_bytes = unsafe { slice::from_raw_parts(addr_of!(test).cast::<u8>(), mem::size_of::<Test>()) };
+        let test_bytes = unsafe { slice::from_raw_parts(addr_of!(test).cast::<u8>(), size_of::<Test>()) };
 
         let mut device = vec![0_u8; 1024];
         let mut slice = Device::<u8, Size4096, std::io::Error>::slice(
@@ -530,7 +527,7 @@ mod test {
             nb_3: 0x1234,
             nb_4: 0x1234_5678_90ab_cdef,
         };
-        let test_bytes = unsafe { slice::from_raw_parts(addr_of!(test).cast::<u8>(), mem::size_of::<Test>()) };
+        let test_bytes = unsafe { slice::from_raw_parts(addr_of!(test).cast::<u8>(), size_of::<Test>()) };
 
         let mut device = vec![0_u8; 1024];
         unsafe {
@@ -540,7 +537,7 @@ mod test {
 
         let slice = Device::<u8, Size4096, std::io::Error>::slice(
             &device,
-            Address::try_from(OFFSET).unwrap()..Address::try_from(OFFSET + mem::size_of::<Test>() as u64).unwrap(),
+            Address::try_from(OFFSET).unwrap()..Address::try_from(OFFSET + size_of::<Test>() as u64).unwrap(),
         )
         .unwrap();
 

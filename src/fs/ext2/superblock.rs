@@ -2,7 +2,7 @@
 //!
 //! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Superblock) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html#superblock) for more information.
 
-use core::mem;
+use core::mem::size_of;
 
 use bitflags::bitflags;
 
@@ -532,7 +532,7 @@ impl Superblock {
             Ok(Self::Basic(superblock_base))
         } else {
             // SAFETY: all the possible failures are catched in the resulting error
-            let superblock_extended_fields = unsafe { device.read_at::<ExtendedFields>(Address::from(mem::size_of::<Base>())) }?;
+            let superblock_extended_fields = unsafe { device.read_at::<ExtendedFields>(Address::from(size_of::<Base>())) }?;
             Ok(Self::Extended(superblock_base, superblock_extended_fields))
         }
     }
@@ -686,7 +686,7 @@ impl Superblock {
 #[cfg(test)]
 mod test {
     use core::cell::RefCell;
-    use core::mem;
+    use core::mem::size_of;
     use std::fs::File;
 
     use super::Superblock;
@@ -695,8 +695,8 @@ mod test {
 
     #[test]
     fn struct_size() {
-        assert_eq!(mem::size_of::<Base>(), 84);
-        assert_eq!(mem::size_of::<Base>() + mem::size_of::<ExtendedFields>(), 264);
+        assert_eq!(size_of::<Base>(), 84);
+        assert_eq!(size_of::<Base>() + size_of::<ExtendedFields>(), 264);
     }
 
     #[test]
@@ -717,5 +717,11 @@ mod test {
         let base = superblock.base();
         let major_version = base.rev_level;
         assert_eq!(major_version, 1);
+    }
+
+    #[test]
+    fn failed_parse() {
+        let device = vec![0_u8; 2048];
+        assert!(Superblock::parse::<Size4096, _>(&device).is_err());
     }
 }

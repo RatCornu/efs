@@ -4,14 +4,14 @@ use alloc::string::String;
 use core::fmt;
 use core::fmt::Display;
 
-/// Enumeration of possible errors encountered with [`FileSystem`]s' manipulation.
+/// Enumeration of possible errors encountered with [`FileSystem`](super::FileSystem)s' manipulation.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum FsError<E: core::error::Error> {
-    /// Indicates that the given [`Path`] is too long to be resolved.
+    /// Indicates that the given [`Path`](crate::path::Path) is too long to be resolved.
     NameTooLong(String),
 
-    /// Indicates that the given filename is not a [`Directory`].
+    /// Indicates that the given filename is not a [`Directory`](crate::file::Directory).
     NotDir(String),
 
     /// Indicates that the given filename is an symbolic link pointing at an empty string.
