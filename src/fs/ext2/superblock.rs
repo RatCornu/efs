@@ -128,16 +128,28 @@ pub enum State {
     Errors = 0x0002,
 }
 
+impl State {
+    /// Returns the [`State`] corresponding to the [`state`](struct.Base.html#structfield.state) field in the [`Base`] structure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Ext2Error::InvalidState`] error if the give bytes does not correspond to a valid state.
+    #[inline]
+    pub const fn try_from_bytes(bytes: u16) -> Result<Self, Ext2Error> {
+        match bytes {
+            0x0001 => Ok(Self::Clean),
+            0x0002 => Ok(Self::Errors),
+            _ => Err(Ext2Error::InvalidState(bytes)),
+        }
+    }
+}
+
 impl TryFrom<u16> for State {
     type Error = Ext2Error;
 
     #[inline]
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            0x0001 => Ok(Self::Clean),
-            0x0002 => Ok(Self::Errors),
-            _ => Err(Ext2Error::InvlidState(value)),
-        }
+        Self::try_from_bytes(value)
     }
 }
 
@@ -164,17 +176,30 @@ pub enum ErrorHandlingMethod {
     Panic = 0x03,
 }
 
+impl ErrorHandlingMethod {
+    /// Returns the [`ErrorHandlingMethod`] corresponding to the [`error`](struct.Base.html#structfield.error) field in the [`Base`]
+    /// structure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Ext2Error::InvalidErrorHandlingMethod`] error if the give bytes does not correspond to a valid state.
+    #[inline]
+    pub const fn try_from_bytes(bytes: u16) -> Result<Self, Ext2Error> {
+        match bytes {
+            0x0001 => Ok(Self::Ignore),
+            0x0002 => Ok(Self::Remount),
+            0x0003 => Ok(Self::Panic),
+            _ => Err(Ext2Error::InvalidErrorHandlingMethod(bytes)),
+        }
+    }
+}
+
 impl TryFrom<u16> for ErrorHandlingMethod {
     type Error = Ext2Error;
 
     #[inline]
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            0x0001 => Ok(Self::Ignore),
-            0x0002 => Ok(Self::Remount),
-            0x0003 => Ok(Self::Panic),
-            _ => Err(Ext2Error::InvalidErrorHandlingMethod(value)),
-        }
+        Self::try_from_bytes(value)
     }
 }
 
@@ -212,17 +237,27 @@ pub enum OperatingSystem {
     Other(u32),
 }
 
-impl From<u32> for OperatingSystem {
+impl OperatingSystem {
+    /// Returns the [`OperatingSystem`] corresponding to the [`creator_os`](struct.Base.html#structfield.creator_os) field in the
+    /// [`Base`] structure.
     #[inline]
-    fn from(value: u32) -> Self {
-        match value {
+    #[must_use]
+    pub const fn from_bytes(bytes: u32) -> Self {
+        match bytes {
             0x0000_0000 => Self::Linux,
             0x0000_0001 => Self::GnuHurd,
             0x0000_0002 => Self::Masix,
             0x0000_0003 => Self::FreeBSD,
             0x0000_0004 => Self::OtherLites,
-            _ => Self::Other(value),
+            _ => Self::Other(bytes),
         }
+    }
+}
+
+impl From<u32> for OperatingSystem {
+    #[inline]
+    fn from(value: u32) -> Self {
+        Self::from_bytes(value)
     }
 }
 
@@ -268,27 +303,27 @@ impl Base {
     ///
     /// # Errors
     ///
-    /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
+    /// Returns an [`Ext2Error::InvalidState`] if an invalid state has been found.
     #[inline]
-    pub fn state(&self) -> Result<State, Ext2Error> {
-        self.state.try_into()
+    pub const fn state(&self) -> Result<State, Ext2Error> {
+        State::try_from_bytes(self.state)
     }
 
     /// Returns the error handling method of this filesystem.
     ///
     /// # Errors
     ///
-    /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
+    /// Returns an [`Ext2Error::InvalidErrorHandlingMethod`] if an invalid state has been found.
     #[inline]
-    pub fn error_handling_method(&self) -> Result<ErrorHandlingMethod, Ext2Error> {
-        self.errors.try_into()
+    pub const fn error_handling_method(&self) -> Result<ErrorHandlingMethod, Ext2Error> {
+        ErrorHandlingMethod::try_from_bytes(self.errors)
     }
 
     /// Returns the Operating system from which the filesystem on this volume was created.
     #[inline]
     #[must_use]
-    pub fn creator_operating_system(&self) -> OperatingSystem {
-        self.creator_os.into()
+    pub const fn creator_operating_system(&self) -> OperatingSystem {
+        OperatingSystem::from_bytes(self.creator_os)
     }
 }
 
@@ -571,9 +606,9 @@ impl Superblock {
     ///
     /// # Errors
     ///
-    /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
+    /// Returns an [`Ext2Error::InvalidState`] if an invalid state has been found.
     #[inline]
-    pub fn state(&self) -> Result<State, Ext2Error> {
+    pub const fn state(&self) -> Result<State, Ext2Error> {
         self.base().state()
     }
 
@@ -581,16 +616,16 @@ impl Superblock {
     ///
     /// # Errors
     ///
-    /// Returns an [`Ext2Error::InvlidState`] if an invalid state has been found.
+    /// Returns an [`Ext2Error::InvalidState`] if an invalid state has been found.
     #[inline]
-    pub fn error_handling_method(&self) -> Result<ErrorHandlingMethod, Ext2Error> {
+    pub const fn error_handling_method(&self) -> Result<ErrorHandlingMethod, Ext2Error> {
         self.base().error_handling_method()
     }
 
     /// Returns the Operating system from which the filesystem on this volume was created.
     #[inline]
     #[must_use]
-    pub fn creator_operating_system(&self) -> OperatingSystem {
+    pub const fn creator_operating_system(&self) -> OperatingSystem {
         self.base().creator_operating_system()
     }
 

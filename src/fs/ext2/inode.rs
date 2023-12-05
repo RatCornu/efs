@@ -6,7 +6,7 @@ use bitflags::bitflags;
 
 use super::block_group::BlockGroupDescriptor;
 use super::error::Ext2Error;
-use super::superblock::Superblock;
+use super::superblock::{OperatingSystem, Superblock};
 use crate::dev::sector::{Address, Sector};
 use crate::dev::Device;
 use crate::error::Error;
@@ -250,6 +250,104 @@ bitflags! {
     }
 }
 
+/// OS dependant structure corresponding to [`osd2`](struct.Inode.html#structfield.osd2) field in [`Inode`]
+#[derive(Debug, Clone, Copy)]
+pub enum Osd2 {
+    /// Fields for Hurd systems.
+    Hurd {
+        /// Fragment number.
+        ///
+        /// Always 0 GNU HURD since fragments are not supported. Obsolete with Ext4.
+        frag: u8,
+
+        /// Fragment size
+        ///
+        /// Always 0 in GNU HURD since fragments are not supported. Obsolete with Ext4.
+        fsize: u8,
+
+        /// High 16bit of the 32bit mode.
+        mode_high: u16,
+
+        /// High 16bit of [user id](struct.Inode.html#structfield.uid).
+        uid_high: u16,
+
+        /// High 16bit of [group id](struct.Inode.html#structfield.gid).
+        gid_high: u16,
+
+        /// Assigned file author.
+        ///
+        /// If this value is set to -1, the POSIX [user id](struct.Inode.html#structfield.uid) will be used.
+        author: u32,
+    },
+
+    /// Fields for Linux systems.
+    Linux {
+        /// Fragment number.
+        ///
+        /// Always 0 in Linux since fragments are not supported.
+        frag: u8,
+
+        /// Fragment size.
+        ///
+        /// Always 0 in Linux since fragments are not supported.
+        fsize: u8,
+
+        /// High 16bit of [user id](struct.Inode.html#structfield.uid).
+        uid_high: u16,
+
+        /// High 16bit of [group id](struct.Inode.html#structfield.gid).
+        gid_high: u16,
+    },
+
+    /// Fields for Masix systems.
+    Masix {
+        /// Fragment number.
+        ///
+        /// Always 0 in Masix as framgents are not supported. Obsolete with Ext4.
+        frag: u8,
+
+        /// Fragment size.
+        ///
+        /// Always 0 in Masix as fragments are not supported. Obsolete with Ext4.
+        fsize: u8,
+    },
+
+    /// Fields for other systems.
+    Other([u8; 12]),
+}
+
+impl Osd2 {
+    /// Get the [`Osd2`] fields from the bytes obtained in the [`Inode`] structure.
+    #[inline]
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 12], os: OperatingSystem) -> Self {
+        match os {
+            OperatingSystem::Linux => Self::Linux {
+                frag: bytes[0],
+                fsize: bytes[1],
+                uid_high: ((bytes[4] as u16) << 8_usize) + bytes[5] as u16,
+                gid_high: ((bytes[6] as u16) << 8_usize) + bytes[7] as u16,
+            },
+            OperatingSystem::GnuHurd => Self::Hurd {
+                frag: bytes[0],
+                fsize: bytes[1],
+                mode_high: ((bytes[2] as u16) << 8_usize) + bytes[3] as u16,
+                uid_high: ((bytes[4] as u16) << 8_usize) + bytes[5] as u16,
+                gid_high: ((bytes[6] as u16) << 8_usize) + bytes[7] as u16,
+                author: ((bytes[8] as u32) << 24_usize)
+                    + ((bytes[9] as u32) << 16_usize)
+                    + ((bytes[10] as u32) << 8_usize)
+                    + bytes[11] as u32,
+            },
+            OperatingSystem::Masix => Self::Masix {
+                frag: bytes[0],
+                fsize: bytes[1],
+            },
+            OperatingSystem::FreeBSD | OperatingSystem::OtherLites | OperatingSystem::Other(_) => Self::Other(bytes),
+        }
+    }
+}
+
 impl Inode {
     /// Returns the block group of the `n`th inode.
     ///
@@ -318,6 +416,14 @@ impl Inode {
         };
         // SAFETY: all the possible failures are catched in the resulting error
         unsafe { device.read_at::<Self>(starting_addr) }
+    }
+
+    /// Returns the [`Osd2`] structure given by the [`Inode`] and the [`Superblock`] structures.
+    #[inline]
+    #[must_use]
+    pub const fn osd2(&self, superblock: &Superblock) -> Osd2 {
+        let os = superblock.creator_operating_system();
+        Osd2::from_bytes(self.osd2, os)
     }
 }
 

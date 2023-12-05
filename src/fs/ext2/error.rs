@@ -17,7 +17,7 @@ pub enum Ext2Error {
     /// Given code does not correspond to a valid file system state.
     ///
     /// See [this table](https://wiki.osdev.org/Ext2#File_System_States) for reference.
-    InvlidState(u16),
+    InvalidState(u16),
 
     /// Given code does not correspond to a valid error handling method.
     ///
@@ -44,7 +44,7 @@ impl Display for Ext2Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BadMagic(magic) => write!(formatter, "Bad Magic: {magic} has been found while {EXT2_SIGNATURE} was expected"),
-            Self::InvlidState(state) => write!(formatter, "Invalid State: {state} has been found while 1 or 2 was expected"),
+            Self::InvalidState(state) => write!(formatter, "Invalid State: {state} has been found while 1 or 2 was expected"),
             Self::InvalidErrorHandlingMethod(method) => {
                 write!(formatter, "Invalid Error Handling Method: {method} was found while 1, 2 or 3 was expected")
             },
