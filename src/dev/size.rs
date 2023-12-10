@@ -2,19 +2,19 @@
 
 use core::cmp::Ordering;
 
-use super::sector::{Address, Sector};
+use super::sector::Address;
 
 /// Caracterize the size of a device
 #[derive(Debug, Clone, Copy)]
-pub enum Size<S: Sector> {
+pub enum Size {
     /// Bounded size with the last address of the device
-    Bound(Address<S>),
+    Bound(Address),
 
     /// Unbounded size
     Unbounded,
 }
 
-impl<S: Sector> PartialEq for Size<S> {
+impl PartialEq for Size {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -24,9 +24,9 @@ impl<S: Sector> PartialEq for Size<S> {
     }
 }
 
-impl<S: Sector> PartialEq<Address<S>> for Size<S> {
+impl PartialEq<Address> for Size {
     #[inline]
-    fn eq(&self, other: &Address<S>) -> bool {
+    fn eq(&self, other: &Address) -> bool {
         match self {
             Self::Bound(address) => address == other,
             Self::Unbounded => false,
@@ -34,9 +34,9 @@ impl<S: Sector> PartialEq<Address<S>> for Size<S> {
     }
 }
 
-impl<S: Sector> Eq for Size<S> {}
+impl Eq for Size {}
 
-impl<S: Sector> PartialOrd for Size<S> {
+impl PartialOrd for Size {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -48,9 +48,9 @@ impl<S: Sector> PartialOrd for Size<S> {
     }
 }
 
-impl<S: Sector> PartialOrd<Address<S>> for Size<S> {
+impl PartialOrd<Address> for Size {
     #[inline]
-    fn partial_cmp(&self, other: &Address<S>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Address) -> Option<Ordering> {
         match self {
             Self::Bound(len) => len.partial_cmp(other),
             Self::Unbounded => None,
@@ -58,18 +58,18 @@ impl<S: Sector> PartialOrd<Address<S>> for Size<S> {
     }
 }
 
-impl<S: Sector> From<Address<S>> for Size<S> {
+impl From<Address> for Size {
     #[inline]
-    fn from(value: Address<S>) -> Self {
+    fn from(value: Address) -> Self {
         Self::Bound(value)
     }
 }
 
-impl<S: Sector> Size<S> {
+impl Size {
     /// Returns the length of the device if it exists
     #[inline]
     #[must_use]
-    pub const fn try_len(&self) -> Option<Address<S>> {
+    pub const fn try_len(&self) -> Option<Address> {
         match self {
             Self::Bound(address) => Some(*address),
             Self::Unbounded => None,

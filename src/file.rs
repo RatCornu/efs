@@ -10,55 +10,55 @@ use no_std_io::io::{Read, Seek, Write};
 use crate::path::{UnixStr, CUR_DIR, PARENT_DIR};
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Timespec, Uid};
 
-/// Minimal stat structure
+/// Minimal stat structure.
 ///
-/// More information on [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html#tag_13_62)
+/// More information on [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html#tag_13_62).
 #[derive(Debug, Clone)]
 pub struct Stat {
-    /// Device ID of device containing file
-    pub st_dev: Dev,
+    /// Device ID of device containing file.
+    pub dev: Dev,
 
-    /// File serial number
-    pub st_ino: Ino,
+    /// File serial number.
+    pub ino: Ino,
 
-    /// Mode of file
-    pub st_mode: Mode,
+    /// Mode of file.
+    pub mode: Mode,
 
-    /// Number of hard links to the file
-    pub st_nlink: Nlink,
+    /// Number of hard links to the file.
+    pub nlink: Nlink,
 
-    /// User ID of file
-    pub st_uid: Uid,
+    /// User ID of file.
+    pub uid: Uid,
 
-    /// Group ID of file
-    pub st_gid: Gid,
+    /// Group ID of file.
+    pub gid: Gid,
 
-    /// Device ID (if file is character or block special)
-    pub st_rdev: Dev,
+    /// Device ID (if file is character or block special).
+    pub rdev: Dev,
 
-    /// For regular files, the file size in bytes
+    /// For regular files, the file size in bytes.
     ///
-    /// For symbolic links, the length in bytes of the pathname contained in the symbolic link
-    pub st_size: Off,
+    /// For symbolic links, the length in bytes of the pathname contained in the symbolic link.
+    pub size: Off,
 
-    /// Last data access timestamp
-    pub st_atim: Timespec,
+    /// Last data access timestamp.
+    pub atim: Timespec,
 
-    /// Last data modification timestamp
-    pub st_mtim: Timespec,
+    /// Last data modification timestamp.
+    pub mtim: Timespec,
 
-    /// Last file status change timestamp
-    pub st_ctim: Timespec,
+    /// Last file status change timestamp.
+    pub ctim: Timespec,
 
     /// A file system-specific preferred I/O block size for this object. In some file system types, this may vary from file to
     /// file.
-    pub st_blksize: Blksize,
+    pub blksize: Blksize,
 
-    /// Number of blocks allocated for this object
-    pub st_blkcnt: Blkcnt,
+    /// Number of blocks allocated for this object.
+    pub blkcnt: Blkcnt,
 }
 
-/// Main trait for all Unix files
+/// Main trait for all Unix files.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_164).
 pub trait File {

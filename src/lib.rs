@@ -63,6 +63,7 @@
 #![feature(error_in_core)]
 #![feature(iter_advance_by)]
 #![feature(let_chains)]
+#![feature(new_uninit)]
 #![feature(step_trait)]
 #![feature(trait_upcasting)]
 

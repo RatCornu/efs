@@ -1,6 +1,7 @@
 //! Path manipulation for UNIX-like filesystems
 
 use alloc::borrow::{Cow, ToOwned};
+use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -15,11 +16,14 @@ use regex::Regex;
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum PathError {
-    /// Indicates that a given filename is either empty or contains a `\0` character
+    /// Indicates that a given filename is either empty or contains a `\0` character.
     InvalidFilename(String),
 
-    /// Indicates that the given path is relative while an absolute one is needed
+    /// Indicates that the given path is relative while an absolute one is needed.
     AbsolutePathRequired(String),
+
+    /// Indicates that a given [`CString`] is ill-formed and cannot be converted to a [`UnixStr`].
+    InvalidCString(CString),
 }
 
 impl Display for PathError {
@@ -31,6 +35,9 @@ impl Display for PathError {
             },
             Self::AbsolutePathRequired(path) => {
                 write!(formatter, "Absolute Path Needed: `{path}` is relative while an absolute path is requested")
+            },
+            Self::InvalidCString(str) => {
+                write!(formatter, "Invalid CString: `{str:?}` is ill-formed")
             },
         }
     }
@@ -100,6 +107,23 @@ impl ToString for UnixStr<'_> {
     #[inline]
     fn to_string(&self) -> String {
         self.0.to_string()
+    }
+}
+
+impl TryFrom<CString> for UnixStr<'_> {
+    type Error = <Self as FromStr>::Err;
+
+    #[inline]
+    fn try_from(value: CString) -> Result<Self, Self::Error> {
+        UnixStr::from_str(value.clone().into_string().map_err(|_err| PathError::InvalidCString(value))?.as_str())
+    }
+}
+
+impl<'path> From<UnixStr<'path>> for CString {
+    #[inline]
+    fn from(value: UnixStr) -> Self {
+        // SAFETY: `value` cannot contain any <NUL> char
+        unsafe { Self::from_vec_unchecked(value.0.as_bytes().to_vec()) }
     }
 }
 

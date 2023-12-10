@@ -7,7 +7,7 @@ use core::mem::size_of;
 use bitflags::bitflags;
 
 use super::error::Ext2Error;
-use crate::dev::sector::{Address, Sector};
+use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
 use crate::fs::error::FsError;
@@ -408,7 +408,7 @@ bitflags! {
     /// implementations that do support them.
     pub struct OptionalFeatures: u32 {
         ///  Preallocate some number of (contiguous?) blocks (see byte 205 in the superblock) to a directory when creating
-        /// a new one (to reduce fragmentation?)
+        /// a new one
         const DIR_PREALLOC  =   0x0000_0001;
 
         /// AFS server inodes exist
@@ -557,7 +557,7 @@ impl Superblock {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<S: Sector, D: Device<u8, S, Ext2Error>>(device: &D) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(device: &D) -> Result<Self, Error<Ext2Error>> {
         // SAFETY: all the possible failures are catched in the resulting error
         let superblock_base = unsafe { device.read_at::<Base>(Address::from(SUPERBLOCK_START_BYTE)) }?;
 
@@ -566,8 +566,9 @@ impl Superblock {
         } else if superblock_base.rev_level == 0 {
             Ok(Self::Basic(superblock_base))
         } else {
-            // SAFETY: all the possible failures are catched in the resulting error
-            let superblock_extended_fields = unsafe { device.read_at::<ExtendedFields>(Address::from(size_of::<Base>())) }?;
+            let superblock_extended_fields =
+                // SAFETY: all the possible failures are catched in the resulting error
+                unsafe { device.read_at::<ExtendedFields>(Address::from(SUPERBLOCK_START_BYTE + size_of::<Base>())) }?;
             Ok(Self::Extended(superblock_base, superblock_extended_fields))
         }
     }
@@ -725,7 +726,6 @@ mod test {
     use std::fs::File;
 
     use super::Superblock;
-    use crate::dev::sector::Size4096;
     use crate::fs::ext2::superblock::{Base, ExtendedFields};
 
     #[test]
@@ -737,7 +737,7 @@ mod test {
     #[test]
     fn basic_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        let superblock = Superblock::parse(&file).unwrap();
         assert!(!superblock.is_extended());
         let base = superblock.base();
         let major_version = base.rev_level;
@@ -747,7 +747,7 @@ mod test {
     #[test]
     fn extended_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
+        let superblock = Superblock::parse(&file).unwrap();
         assert!(superblock.is_extended());
         let base = superblock.base();
         let major_version = base.rev_level;
@@ -757,6 +757,6 @@ mod test {
     #[test]
     fn failed_parse() {
         let device = vec![0_u8; 2048];
-        assert!(Superblock::parse::<Size4096, _>(&device).is_err());
+        assert!(Superblock::parse(&device).is_err());
     }
 }

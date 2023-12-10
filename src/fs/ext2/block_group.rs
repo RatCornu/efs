@@ -4,7 +4,7 @@
 
 use super::error::Ext2Error;
 use super::superblock::Superblock;
-use crate::dev::sector::{Address, Sector};
+use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
 use crate::fs::error::FsError;
@@ -55,14 +55,14 @@ impl BlockGroupDescriptor {
     /// Returns an [`NonExistingBlockGroup`](Ext2Error::NonExistingBlockGroup) if `n` is greater than the block group count of this
     /// device.
     #[inline]
-    pub const fn starting_addr<S: Sector>(superblock: &Superblock, n: u32) -> Result<Address<S>, Error<Ext2Error>> {
+    pub const fn starting_addr(superblock: &Superblock, n: u32) -> Result<Address, Error<Ext2Error>> {
         let block_group_count = superblock.block_group_count();
         if block_group_count <= n {
             return Err(Error::Fs(FsError::Implementation(Ext2Error::NonExistingBlockGroup(n))));
         };
 
         let superblock_end_address = SUPERBLOCK_START_BYTE + SUPERBLOCK_SIZE;
-        Ok(Address::from_index(
+        Ok(Address::new(
             superblock_end_address + if superblock_end_address % (superblock.block_size() as usize) == 0 { 0 } else { 1 },
         ))
     }
@@ -76,11 +76,7 @@ impl BlockGroupDescriptor {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<S: Sector, D: Device<u8, S, Ext2Error>>(
-        device: &D,
-        superblock: &Superblock,
-        n: u32,
-    ) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(device: &D, superblock: &Superblock, n: u32) -> Result<Self, Error<Ext2Error>> {
         let table_start_address = Self::starting_addr(superblock, n)?;
 
         let block_group_descriptor_address = table_start_address + (n as usize * BLOCK_GROUP_DESCRIPTOR_SIZE);
@@ -95,7 +91,6 @@ mod test {
     use core::mem::size_of;
     use std::fs::File;
 
-    use crate::dev::sector::Size4096;
     use crate::fs::ext2::block_group::{BlockGroupDescriptor, BLOCK_GROUP_DESCRIPTOR_SIZE};
     use crate::fs::ext2::superblock::Superblock;
 
@@ -107,22 +102,22 @@ mod test {
     #[test]
     fn parse_first_block_group_descriptor() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse::<Size4096, _>(&file, &superblock, 0).is_ok());
+        let superblock = Superblock::parse(&file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&file, &superblock, 0).is_ok());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse::<Size4096, _>(&file, &superblock, 0).is_ok());
+        let superblock = Superblock::parse(&file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&file, &superblock, 0).is_ok());
     }
 
     #[test]
     fn failed_parse() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse::<Size4096, _>(&file, &superblock, superblock.block_group_count()).is_err());
+        let superblock = Superblock::parse(&file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&file, &superblock, superblock.block_group_count()).is_err());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse::<Size4096, _>(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse::<Size4096, _>(&file, &superblock, superblock.block_group_count()).is_err());
+        let superblock = Superblock::parse(&file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&file, &superblock, superblock.block_group_count()).is_err());
     }
 }
