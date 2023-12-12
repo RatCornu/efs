@@ -75,13 +75,13 @@ pub trait Regular: File + Read + Write + Seek {}
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_130).
 pub struct DirectoryEntry<'path> {
-    /// Name of the file pointed by this directory entry
+    /// Name of the file pointed by this directory entry.
     ///
     /// See more information on valid filenames in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_170).
     pub filename: UnixStr<'path>,
 
     /// File pointed by this directory entry.
-    pub file: Type,
+    pub file: TypeWithFile,
 }
 
 /// A file that contains directory entries. No two directory entries in the same directory have the same name.
@@ -97,7 +97,7 @@ pub trait Directory: File {
 
     /// Returns the entry with the given name.
     #[inline]
-    fn entry(&self, name: UnixStr) -> Option<Type> {
+    fn entry(&self, name: UnixStr) -> Option<TypeWithFile> {
         let children = self.entries();
         children.into_iter().find(|entry| entry.filename == name).map(|entry| entry.file)
     }
@@ -107,7 +107,7 @@ pub trait Directory: File {
     /// If `self` if the root directory, it must return itself.
     #[inline]
     fn parent(&self) -> Box<dyn Directory> {
-        let Some(Type::Directory(parent_entry)) = self.entry(PARENT_DIR.clone()) else {
+        let Some(TypeWithFile::Directory(parent_entry)) = self.entry(PARENT_DIR.clone()) else {
             unreachable!("`entries` must return `..` that corresponds to the parent directory.")
         };
         parent_entry
@@ -117,7 +117,7 @@ pub trait Directory: File {
 impl Clone for Box<dyn Directory> {
     #[inline]
     fn clone(&self) -> Self {
-        let Some(Type::Directory(parent_entry)) = self.entry(CUR_DIR.clone()) else {
+        let Some(TypeWithFile::Directory(parent_entry)) = self.entry(CUR_DIR.clone()) else {
             unreachable!("`entries` must return `.` that corresponds to the current directory.")
         };
         parent_entry
@@ -127,7 +127,7 @@ impl Clone for Box<dyn Directory> {
 /// A type of file with the property that when the file is encountered during pathname resolution, a string stored by the file is
 /// used to modify the pathname resolution.
 ///
-/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_381)
+/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_381).
 pub trait SymbolicLink: File {
     /// Returns the string stored in this symbolic link
     fn pointed_file(&self) -> &str;
@@ -135,49 +135,79 @@ pub trait SymbolicLink: File {
 
 /// A type of file with the property that data written to such a file is read on a first-in-first-out basis.
 ///
-/// Defined in [this POSIX defintion](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_163)
+/// Defined in [this POSIX defintion](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_163).
 pub trait Fifo: File + Read + Write {}
 
 /// A file that refers to a device (such as a terminal device file) or that has special properties (such as /dev/null).
 ///
-/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_91)
+/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_91).
 pub trait CharacterDevice: File + Read + Write {}
 
 /// A file that refers to a device. A block special file is normally distinguished from a character special file by providing access
 /// to the device in a manner such that the hardware characteristics of the device are not visible.
 ///
-/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_79)
+/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_79).
 pub trait BlockDevice: File + Read + Write {}
 
 /// A file of a particular type that is used as a communications endpoint for process-to-process communication as described in the
 /// System Interfaces volume of POSIX.1-2017.
 ///
-/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_356)
+/// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_356).
 pub trait Socket: File + Read + Write {}
 
-/// Enumeration of possible file types in a standard UNIX-like filesystem
+/// Enumeration of possible file types in a standard UNIX-like filesystem.
 pub enum Type {
-    /// Storage unit of a filesystem
+    /// Storage unit of a filesystem.
+    Regular,
+
+    /// Node containing other nodes.
+    Directory,
+
+    /// Node pointing towards an other node in the filesystem.
+    SymbolicLink,
+
+    /// Named pipe.
+    Fifo,
+
+    /// An inode that refers to a device communicating by sending chars (bytes) of data.
+    CharacterDevice,
+
+    /// An inode that refers to a device communicating by sending blocks of data.
+    BlockDevice,
+
+    /// Communication flow between two processes.
+    Socket,
+
+    /// A file system dependant file (e.g [the Doors](https://en.wikipedia.org/wiki/Doors_(computing)) on Solaris systems).
+    Other,
+}
+
+/// Enumeration of possible file types in a standard UNIX-like filesystem.
+///
+/// Same elements as [`Type`] with an associated file.
+#[allow(clippy::module_name_repetitions)]
+pub enum TypeWithFile {
+    /// Storage unit of a filesystem.
     Regular(Box<dyn Regular>),
 
-    /// Node containing other nodes
+    /// Node containing other nodes.
     Directory(Box<dyn Directory>),
 
-    /// Node pointing towards an other node in the filesystem
+    /// Node pointing towards an other node in the filesystem.
     SymbolicLink(Box<dyn SymbolicLink>),
 
-    /// Named pipe
+    /// Named pipe.
     Fifo(Box<dyn Fifo>),
 
-    /// An inode that refers to a device communicating by sending chars (bytes) of data
+    /// An inode that refers to a device communicating by sending chars (bytes) of data.
     CharacterDevice(Box<dyn CharacterDevice>),
 
-    /// An inode that refers to a device communicating by sending blocks of data
+    /// An inode that refers to a device communicating by sending blocks of data.
     BlockDevice(Box<dyn BlockDevice>),
 
-    /// Communication flow between two processes
+    /// Communication flow between two processes.
     Socket(Box<dyn Socket>),
 
-    /// A file system dependant file (e.g [the Doors](https://en.wikipedia.org/wiki/Doors_(computing)) on Solaris systems)
+    /// A file system dependant file (e.g [the Doors](https://en.wikipedia.org/wiki/Doors_(computing)) on Solaris systems).
     Other(Box<dyn File>),
 }

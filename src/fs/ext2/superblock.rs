@@ -7,6 +7,7 @@ use core::mem::size_of;
 use bitflags::bitflags;
 
 use super::error::Ext2Error;
+use super::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
@@ -557,7 +558,9 @@ impl Superblock {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<D: Device<u8, Ext2Error>>(device: &D) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(celled_device: &Celled<D>) -> Result<Self, Error<Ext2Error>> {
+        let device = celled_device.borrow();
+
         // SAFETY: all the possible failures are catched in the resulting error
         let superblock_base = unsafe { device.read_at::<Base>(Address::from(SUPERBLOCK_START_BYTE)) }?;
 
@@ -721,6 +724,7 @@ impl Superblock {
 
 #[cfg(test)]
 mod test {
+    use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
@@ -737,7 +741,8 @@ mod test {
     #[test]
     fn basic_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(!superblock.is_extended());
         let base = superblock.base();
         let major_version = base.rev_level;
@@ -747,7 +752,8 @@ mod test {
     #[test]
     fn extended_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(superblock.is_extended());
         let base = superblock.base();
         let major_version = base.rev_level;
@@ -757,6 +763,7 @@ mod test {
     #[test]
     fn failed_parse() {
         let device = vec![0_u8; 2048];
-        assert!(Superblock::parse(&device).is_err());
+        let celled_device = Rc::new(RefCell::new(device));
+        assert!(Superblock::parse(&celled_device).is_err());
     }
 }

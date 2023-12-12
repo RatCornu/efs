@@ -223,15 +223,7 @@ pub trait Device<T: Copy, E: core::error::Error> {
             ..Address::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
                 "address",
                 i128::try_from(starting_addr.index() + length).unwrap_unchecked(),
-                (
-                    0,
-                    self.size()
-                        .try_len()
-                        .and_then(|len| len.index().into())
-                        .unwrap_or_default()
-                        .try_into()
-                        .unwrap_unchecked(),
-                ),
+                (0, self.size().len().index().try_into().unwrap_unchecked()),
             )))?;
         let slice = self.slice(range).map_err(Into::into)?;
         let ptr = slice.inner.as_ptr();
@@ -263,15 +255,7 @@ pub trait Device<T: Copy, E: core::error::Error> {
             ..Address::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
                 "address",
                 i128::try_from(starting_addr.index() + length).unwrap_unchecked(),
-                (
-                    0,
-                    self.size()
-                        .try_len()
-                        .and_then(|len| len.index().into())
-                        .unwrap_or_default()
-                        .try_into()
-                        .unwrap_unchecked(),
-                ),
+                (0, self.size().len().index().try_into().unwrap_unchecked()),
             )))?;
         let mut device_slice = self.slice(range).map_err(Into::into)?;
         let buffer = device_slice
@@ -292,7 +276,7 @@ macro_rules! impl_device {
 
             #[inline]
             fn size(&self) -> Size {
-                Size::Bound(Address::from(self.len()))
+                Size(Address::from(self.len()))
             }
 
             #[inline]
@@ -310,11 +294,8 @@ macro_rules! impl_device {
                         "address",
                         // SAFETY: it is assumed that `usize` can always be converted to `i128`
                         unsafe { addr_range.end.index().try_into().unwrap_unchecked() },
-                        (0, match <Self as Device<T, E>>::size(self) {
-                            // SAFETY: it is assumed that `usize` can always be converted to `i128`
-                            Size::Bound(addr) => unsafe { addr.index().try_into().unwrap_unchecked() },
-                            Size::Unbounded => 0,
-                        }),
+                        // SAFETY: it is assumed that `usize` can always be converted to `i128`
+                        (0, unsafe { <Self as Device<T, E>>::size(self).len().index().try_into().unwrap_unchecked() }),
                     )))
                 }
             }

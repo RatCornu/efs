@@ -2,6 +2,8 @@
 //!
 //! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Block_Group_Descriptor_Table) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html) for more informations.
 
+use core::cell::RefCell;
+
 use super::error::Ext2Error;
 use super::superblock::Superblock;
 use crate::dev::sector::Address;
@@ -76,7 +78,13 @@ impl BlockGroupDescriptor {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<D: Device<u8, Ext2Error>>(device: &D, superblock: &Superblock, n: u32) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(
+        celled_device: &RefCell<D>,
+        superblock: &Superblock,
+        n: u32,
+    ) -> Result<Self, Error<Ext2Error>> {
+        let device = celled_device.borrow();
+
         let table_start_address = Self::starting_addr(superblock, n)?;
 
         let block_group_descriptor_address = table_start_address + (n as usize * BLOCK_GROUP_DESCRIPTOR_SIZE);
@@ -87,6 +95,7 @@ impl BlockGroupDescriptor {
 
 #[cfg(test)]
 mod test {
+    use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
@@ -102,22 +111,26 @@ mod test {
     #[test]
     fn parse_first_block_group_descriptor() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse(&file, &superblock, 0).is_ok());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, 0).is_ok());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse(&file, &superblock, 0).is_ok());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, 0).is_ok());
     }
 
     #[test]
     fn failed_parse() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse(&file, &superblock, superblock.block_group_count()).is_err());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, superblock.block_group_count()).is_err());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(BlockGroupDescriptor::parse(&file, &superblock, superblock.block_group_count()).is_err());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, superblock.block_group_count()).is_err());
     }
 }

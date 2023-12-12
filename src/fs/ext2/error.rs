@@ -70,3 +70,21 @@ impl Display for Ext2Error {
 }
 
 impl error::Error for Ext2Error {}
+
+impl Ext2Error {
+    /// Converts an [`Ext2Error`] into a `static str` in constant time.
+    #[inline]
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::BadMagic(_) => "Bad Magic",
+            Self::BadString => "Bad String",
+            Self::InvalidState(_) => "Invalid State",
+            Self::InvalidErrorHandlingMethod(_) => "Invalid Error Hanling Method",
+            Self::InvalidCompressionAlgorithm(_) => "Invalid Compression Algorithm",
+            Self::NoExtendedFields => "No Extended Fields",
+            Self::NonExistingBlockGroup(_) => "Non Existing Block Group",
+            Self::NonExistingInode(_) => "Non Existing Inode",
+        }
+    }
+}

@@ -12,6 +12,7 @@ use itertools::Itertools;
 use super::block_group::BlockGroupDescriptor;
 use super::error::Ext2Error;
 use super::superblock::{OperatingSystem, Superblock};
+use super::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
@@ -108,7 +109,7 @@ pub struct Inode {
 }
 
 bitflags! {
-    /// Indicators of the inode type and permissions
+    /// Indicators of the inode type and permissions.
     ///
     /// The type indicator occupies the top hex digit (bits 15 to 12).
     ///
@@ -376,14 +377,20 @@ impl Inode {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<D: Device<u8, Ext2Error>>(device: &D, superblock: &Superblock, n: u32) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(
+        celled_device: &Celled<D>,
+        superblock: &Superblock,
+        n: u32,
+    ) -> Result<Self, Error<Ext2Error>> {
+        let device = celled_device.borrow();
+
         let base = superblock.base();
         if base.inodes_count < n || n == 0 {
             return Err(Error::Fs(FsError::Implementation(Ext2Error::NonExistingInode(n))));
         };
 
         let block_group = Self::block_group(superblock, n);
-        let block_group_descriptor = BlockGroupDescriptor::parse(device, superblock, block_group)?;
+        let block_group_descriptor = BlockGroupDescriptor::parse(celled_device, superblock, block_group)?;
         let inode_table_starting_block = block_group_descriptor.inode_table;
         let index = Self::group_index(superblock, n);
 
@@ -404,7 +411,8 @@ impl Inode {
         Osd2::from_bytes(self.osd2, os)
     }
 
-    /// Reads the content of this inode starting at the given `offset`, returning it in the given `buffer`.
+    /// Reads the content of this inode starting at the given `offset`, returning it in the given `buffer`. Returns the number of
+    /// bytes read.
     ///
     /// If the size of the buffer is greater than the inode data size, it will fill the start of the buffer and will leave the end
     /// untouch.
@@ -415,18 +423,20 @@ impl Inode {
     #[inline]
     pub fn read_data<D: Device<u8, Ext2Error>>(
         &self,
-        device: &D,
+        celled_device: &Celled<D>,
         superblock: &Superblock,
         buffer: &mut [u8],
         mut offset: u64,
-    ) -> Result<(), Error<Ext2Error>> {
+    ) -> Result<usize, Error<Ext2Error>> {
         /// Returns the list of block addresses contained in the given indirect block.
         #[allow(clippy::cast_ptr_alignment)]
         fn read_indirect_block<D: Device<u8, Ext2Error>>(
-            device: &D,
+            celled_device: &Celled<D>,
             superblock: &Superblock,
             block_number: u32,
         ) -> Result<Vec<u32>, Error<Ext2Error>> {
+            let device = celled_device.borrow();
+
             let block_address = Address::from((block_number * superblock.block_size()) as usize);
             let slice = device
                 .slice(block_address..block_address + superblock.block_size() as usize)
@@ -437,6 +447,8 @@ impl Inode {
                 unsafe { from_raw_parts::<u32>(byte_array.as_ptr().cast::<u32>(), byte_array.len() / size_of::<u32>()) };
             Ok(address_array.iter().filter(|&block_number| (*block_number != 0)).copied().collect_vec())
         }
+
+        let device = celled_device.borrow();
 
         let buffer_length = buffer.len();
 
@@ -450,32 +462,32 @@ impl Inode {
         blocks.append(&mut direct_block_pointers.to_vec());
 
         if singly_indirect_block_pointer != 0 {
-            blocks.append(&mut read_indirect_block(device, superblock, singly_indirect_block_pointer)?);
+            blocks.append(&mut read_indirect_block(celled_device, superblock, singly_indirect_block_pointer)?);
         }
 
         if doubly_indirect_block_pointer != 0 {
-            let singly_indirect_block_pointers = read_indirect_block(device, superblock, doubly_indirect_block_pointer)?;
+            let singly_indirect_block_pointers = read_indirect_block(celled_device, superblock, doubly_indirect_block_pointer)?;
 
             for block_pointer in singly_indirect_block_pointers {
                 if block_pointer != 0 {
-                    blocks.append(&mut read_indirect_block(device, superblock, block_pointer)?);
+                    blocks.append(&mut read_indirect_block(celled_device, superblock, block_pointer)?);
                 }
             }
         }
 
         if triply_indirect_block_pointer != 0 {
-            let doubly_indirect_block_pointers = read_indirect_block(device, superblock, triply_indirect_block_pointer)?;
+            let doubly_indirect_block_pointers = read_indirect_block(celled_device, superblock, triply_indirect_block_pointer)?;
 
             for block_pointer_pointer in doubly_indirect_block_pointers {
                 if block_pointer_pointer == 0 {
                     break;
                 }
 
-                let singly_indirect_block_pointers = read_indirect_block(device, superblock, block_pointer_pointer)?;
+                let singly_indirect_block_pointers = read_indirect_block(celled_device, superblock, block_pointer_pointer)?;
 
                 for block_pointer in singly_indirect_block_pointers {
                     if block_pointer != 0 {
-                        blocks.append(&mut read_indirect_block(device, superblock, block_pointer)?);
+                        blocks.append(&mut read_indirect_block(celled_device, superblock, block_pointer)?);
                     }
                 }
             }
@@ -525,12 +537,13 @@ impl Inode {
             }
         }
 
-        Ok(())
+        Ok(read_bytes)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
@@ -546,22 +559,26 @@ mod test {
     #[test]
     fn parse_root() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(Inode::parse(&file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(Inode::parse(&file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
     }
 
     #[test]
     fn failed_parse() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(Inode::parse(&file, &superblock, 0).is_err());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(Inode::parse(&celled_file, &superblock, 0).is_err());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let superblock = Superblock::parse(&file).unwrap();
-        assert!(Inode::parse(&file, &superblock, superblock.base().inodes_count + 1).is_err());
+        let celled_file = Rc::new(RefCell::new(file));
+        let superblock = Superblock::parse(&celled_file).unwrap();
+        assert!(Inode::parse(&celled_file, &superblock, superblock.base().inodes_count + 1).is_err());
     }
 }

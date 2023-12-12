@@ -5,8 +5,8 @@
 use derive_more::{Deref, DerefMut};
 
 /// Used for device IDs.
-#[derive(Debug, Clone, Copy, Deref, DerefMut)]
-pub struct Dev(pub u16);
+#[derive(Debug, Clone, Copy, Deref, DerefMut, Default)]
+pub struct Dev(pub u32);
 
 /// Used for file serial numbers.
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
@@ -30,7 +30,7 @@ pub struct Gid(pub u16);
 
 /// Used for file sizes.
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
-pub struct Off(pub i32);
+pub struct Off(pub i64);
 
 /// Used for block sizes.
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
@@ -42,7 +42,7 @@ pub struct Blkcnt(pub i32);
 
 /// Used for time in seconds.
 #[derive(Debug, Clone, Copy, Deref, DerefMut)]
-pub struct Time(pub i32);
+pub struct Time(pub i64);
 
 /// Used for time in seconds.
 ///
@@ -53,5 +53,5 @@ pub struct Timespec {
     pub tv_sec: Time,
 
     /// Nanoseconds
-    pub tv_nsec: u32,
+    pub tv_nsec: i32,
 }

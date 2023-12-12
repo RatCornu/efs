@@ -10,7 +10,7 @@ use core::str::FromStr;
 use itertools::{Itertools, Position};
 
 use crate::error::Error;
-use crate::file::{Directory, Type};
+use crate::file::{Directory, TypeWithFile};
 use crate::fs::error::FsError;
 use crate::path::{Component, Path};
 
@@ -63,7 +63,7 @@ pub trait FileSystem {
         path: &Path,
         current_dir: Box<dyn Directory>,
         symlink_resolution: bool,
-    ) -> Result<Type, Error<Self::Error>>
+    ) -> Result<TypeWithFile, Error<Self::Error>>
     where
         Self: Sized,
     {
@@ -76,7 +76,7 @@ pub trait FileSystem {
             mut current_dir: Box<dyn Directory>,
             symlink_resolution: bool,
             mut visited_symlinks: Vec<String>,
-        ) -> Result<Type, Error<E>> {
+        ) -> Result<TypeWithFile, Error<E>> {
             let canonical_path = path.canonical();
 
             if canonical_path.len() > PATH_MAX {
@@ -117,7 +117,7 @@ pub trait FileSystem {
 
                         #[allow(clippy::wildcard_enum_match_arm)]
                         match entry {
-                            Type::Directory(dir) => {
+                            TypeWithFile::Directory(dir) => {
                                 current_dir = dir;
                             },
                             // This case is the symbolic link resolution, which is the one described as **not** being the one
@@ -132,7 +132,7 @@ pub trait FileSystem {
                             //   2. The pathname has no trailing <slash>.
                             //   3. The function is required to act on the symbolic link itself, or certain arguments direct that
                             //      the function act on the symbolic link itself.
-                            Type::SymbolicLink(symlink)
+                            TypeWithFile::SymbolicLink(symlink)
                                 if (pos != Position::Last && pos != Position::Only)
                                     || !trailing_blackslash
                                     || !symlink_resolution =>
@@ -158,7 +158,7 @@ pub trait FileSystem {
             }
 
             match symlink_encountered {
-                None => Ok(Type::Directory(current_dir)),
+                None => Ok(TypeWithFile::Directory(current_dir)),
                 Some(pointed_file) => {
                     if visited_symlinks.contains(&pointed_file) {
                         return Err(Error::Fs(FsError::Loop(pointed_file)));
