@@ -4,7 +4,6 @@
 
 use alloc::boxed::Box;
 use alloc::ffi::CString;
-use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::mem::size_of;
@@ -74,7 +73,7 @@ impl Entry {
     /// Must also ensure the requirements of [`Device::read_at`].
     #[inline]
     pub unsafe fn parse<D: Device<u8, Ext2Error>>(
-        celled_device: &Celled<D>,
+        celled_device: Celled<'_, D>,
         starting_addr: Address,
     ) -> Result<Self, Error<Ext2Error>> {
         let device = celled_device.borrow();
@@ -123,7 +122,7 @@ impl Directory {
     /// Returns the same errors as [`Entry::parse`].
     #[inline]
     pub fn parse<D: Device<u8, Ext2Error>>(
-        celled_device: &Celled<D>,
+        celled_device: Celled<'_, D>,
         inode: Inode,
         superblock: &Superblock,
         parent: Option<Box<dyn file::Directory>>,
@@ -135,7 +134,7 @@ impl Directory {
             let starting_addr =
                 Address::from((inode.direct_block_pointers[0] * superblock.block_size() + accumulated_size) as usize);
             // SAFETY: `starting_addr` contains the beginning of an entry
-            let entry = unsafe { Entry::parse(&Rc::clone(celled_device), starting_addr) }?;
+            let entry = unsafe { Entry::parse(celled_device, starting_addr) }?;
             accumulated_size += u32::from(entry.rec_len);
             entries.push(entry);
         }
