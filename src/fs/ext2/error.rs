@@ -4,11 +4,15 @@ use core::error;
 use core::fmt::{self, Display};
 
 use super::superblock::EXT2_SIGNATURE;
+use crate::file::Type;
 
 /// Enumeration of possible errors encountered with Ext2's manipulation.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Ext2Error {
+    /// A bad file type has been found during the parsing of the inode with the given inode number.
+    BadFileType(u16),
+
     /// A bad magic number has been found during the superblock parsing.
     ///
     /// See [this table](https://wiki.osdev.org/Ext2#Base_Superblock_Fields) for reference.
@@ -40,12 +44,18 @@ pub enum Ext2Error {
 
     /// Tried to access a non-existing inode.
     NonExistingInode(u32),
+
+    /// Tried to assign a wrong type to a file.
+    WrongFileType(Type, Type),
 }
 
 impl Display for Ext2Error {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BadFileType(mode) => {
+                write!(formatter, "Bad File Type: an inode contain the mode {mode}, which does not correspond to a valid file type")
+            },
             Self::BadMagic(magic) => write!(formatter, "Bad Magic: {magic} has been found while {EXT2_SIGNATURE} was expected"),
             Self::BadString => write!(formatter, "Bad String: a ill-formed C-string has been found"),
             Self::InvalidState(state) => write!(formatter, "Invalid State: {state} has been found while 1 or 2 was expected"),
@@ -65,6 +75,9 @@ impl Display for Ext2Error {
             Self::NonExistingInode(nth) => {
                 write!(formatter, "Non Existing Inode: tried to access the {nth} inode which does not exist")
             },
+            Self::WrongFileType(expected, given) => {
+                write!(formatter, "Wrong File Type: {expected:?} file type expected, {given:?} given")
+            },
         }
     }
 }
@@ -77,6 +90,7 @@ impl Ext2Error {
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
+            Self::BadFileType(_) => "Bad File Type",
             Self::BadMagic(_) => "Bad Magic",
             Self::BadString => "Bad String",
             Self::InvalidState(_) => "Invalid State",
@@ -85,6 +99,7 @@ impl Ext2Error {
             Self::NoExtendedFields => "No Extended Fields",
             Self::NonExistingBlockGroup(_) => "Non Existing Block Group",
             Self::NonExistingInode(_) => "Non Existing Inode",
+            Self::WrongFileType(_, _) => "Wrong File Type",
         }
     }
 }

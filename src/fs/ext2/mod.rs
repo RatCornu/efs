@@ -5,6 +5,7 @@
 use core::cell::RefCell;
 
 use self::error::Ext2Error;
+use self::inode::Inode;
 use self::superblock::Superblock;
 use crate::dev::Device;
 use crate::error::Error;
@@ -20,25 +21,25 @@ pub mod superblock;
 pub type Celled<'dev, T> = &'dev RefCell<T>;
 
 /// Main interface for devices containing an ext2 filesystem.
-pub struct Ext2<D: Device<u8, Ext2Error>> {
+pub struct Ext2<Dev: Device<u8, Ext2Error>> {
     /// Device number of the device containing the ext2 filesystem.
     device_id: u32,
 
     /// Device containing the ext2 filesystem.
-    device: RefCell<D>,
+    device: RefCell<Dev>,
 
     /// Superblock of the filesystem.
     superblock: Superblock,
 }
 
-impl<D: Device<u8, Ext2Error>> Ext2<D> {
+impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     /// Creates a new [`Ext2`] object from the given device that should contain an ext2 filesystem and a given device ID.
     ///
     /// # Errors
     ///
     /// Returns an [`Error`] if the device could not be read of if no ext2 filesystem is found on this device.
     #[inline]
-    pub fn new(device: D, device_id: u32) -> Result<Self, Error<Ext2Error>> {
+    pub fn new(device: Dev, device_id: u32) -> Result<Self, Error<Ext2Error>> {
         let celled_device = RefCell::new(device);
         let superblock = Superblock::parse(&celled_device)?;
         Ok(Self {
@@ -46,5 +47,22 @@ impl<D: Device<u8, Ext2Error>> Ext2<D> {
             device_id,
             superblock,
         })
+    }
+
+    /// Returns the [`Superblock`] of this filesystem.
+    #[inline]
+    #[must_use]
+    pub const fn superblock(&self) -> &Superblock {
+        &self.superblock
+    }
+
+    /// Returns the [`Inode`] with the given number.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Inode::parse`].
+    #[inline]
+    pub fn inode(&self, inode_number: u32) -> Result<Inode, Error<Ext2Error>> {
+        Inode::parse(&self.device, &self.superblock, inode_number)
     }
 }

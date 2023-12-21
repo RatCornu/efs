@@ -29,7 +29,7 @@ impl Display for DevError {
 impl error::Error for DevError {}
 
 impl DevError {
-    /// Converts an [`Ext2Error`] into a `static str` in constant time.
+    /// Converts an [`DevError`] into a `static str` in constant time.
     #[inline]
     #[must_use]
     pub const fn as_str(&self) -> &'static str {

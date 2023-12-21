@@ -16,6 +16,7 @@ use super::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
+use crate::file::Type;
 use crate::fs::error::FsError;
 
 /// Reserved bad block inode number.
@@ -356,6 +357,33 @@ impl Inode {
         TypePermissions::from_bits_truncate(self.mode)
     }
 
+    /// Returns the type of the file pointed by this inode.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`BadFileType`](Ext2Error::BadFileType) if the inode does not contain a valid file type.
+    #[inline]
+    pub const fn file_type(&self) -> Result<Type, Ext2Error> {
+        let types_permissions = self.type_permissions();
+        if types_permissions.contains(TypePermissions::REGULAR_FILE) {
+            Ok(Type::Regular)
+        } else if types_permissions.contains(TypePermissions::DIRECTORY) {
+            Ok(Type::Directory)
+        } else if types_permissions.contains(TypePermissions::SYMBOLIC_LINK) {
+            Ok(Type::SymbolicLink)
+        } else if types_permissions.contains(TypePermissions::FIFO) {
+            Ok(Type::Fifo)
+        } else if types_permissions.contains(TypePermissions::CHARACTER_DEVICE) {
+            Ok(Type::CharacterDevice)
+        } else if types_permissions.contains(TypePermissions::BLOCK_DEVICE) {
+            Ok(Type::BlockDevice)
+        } else if types_permissions.contains(TypePermissions::SOCKET) {
+            Ok(Type::Socket)
+        } else {
+            Err(Ext2Error::BadFileType(types_permissions.bits()))
+        }
+    }
+
     /// Returns the complete size of the data pointed by this inode.
     #[inline]
     #[must_use]
@@ -374,6 +402,9 @@ impl Inode {
     ///
     /// Returns an [`NonExistingBlockGroup`](Ext2Error::NonExistingBlockGroup) if `n` is greater than the block group count of this
     /// device.
+    ///
+    /// Returns an [`BadFileType`](Ext2Error::BadFileType) if the inode with the given inode number does not contains a valid file
+    /// type.
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
@@ -400,7 +431,12 @@ impl Inode {
                 .unwrap_unchecked()
         };
         // SAFETY: all the possible failures are catched in the resulting error
-        unsafe { device.read_at::<Self>(starting_addr) }
+        let inode = unsafe { device.read_at::<Self>(starting_addr) }?;
+
+        match inode.file_type() {
+            Ok(_) => Ok(inode),
+            Err(err) => Err(Error::Fs(FsError::Implementation(err))),
+        }
     }
 
     /// Returns the [`Osd2`] structure given by the [`Inode`] and the [`Superblock`] structures.

@@ -1,7 +1,6 @@
 //! General interface for filesystems
 
 use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -10,7 +9,7 @@ use core::str::FromStr;
 use itertools::{Itertools, Position};
 
 use crate::error::Error;
-use crate::file::{Directory, TypeWithFile};
+use crate::file::{Directory, File, Regular, SymbolicLink, TypeWithFile};
 use crate::fs::error::FsError;
 use crate::path::{Component, Path};
 
@@ -25,19 +24,19 @@ pub mod ext2;
 pub const PATH_MAX: usize = 4_096;
 
 /// A filesystem.
-pub trait FileSystem {
+pub trait FileSystem<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>> {
     /// Error type associated with the filesystem.
     type Error: core::error::Error;
 
     /// Returns the root directory of the filesystem.
-    fn root(&self) -> Box<dyn Directory>;
+    fn root(&self) -> D;
 
     /// Returns the double slash root directory of the filesystem.
     ///
     /// If you do not have any idea of what this is, you are probably looking for [`root`](trait.FileSystem.html#tymethod.root).
     ///
     /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more information.
-    fn double_slash_root(&self) -> Box<dyn Directory>;
+    fn double_slash_root(&self) -> D;
 
     /// Performs a pathname resolution as described in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13).
     ///
@@ -61,22 +60,22 @@ pub trait FileSystem {
     fn pathname_resolution(
         &self,
         path: &Path,
-        current_dir: Box<dyn Directory>,
+        current_dir: D,
         symlink_resolution: bool,
-    ) -> Result<TypeWithFile, Error<Self::Error>>
+    ) -> Result<TypeWithFile<R, S, F, D>, Error<Self::Error>>
     where
         Self: Sized,
     {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn inner_resolution<E: core::error::Error>(
-            fs: &impl FileSystem,
+        fn inner_resolution<E: core::error::Error, R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>>(
+            fs: &impl FileSystem<R, S, F, D>,
             path: &Path,
-            mut current_dir: Box<dyn Directory>,
+            mut current_dir: D,
             symlink_resolution: bool,
             mut visited_symlinks: Vec<String>,
-        ) -> Result<TypeWithFile, Error<E>> {
+        ) -> Result<TypeWithFile<R, S, F, D>, Error<E>> {
             let canonical_path = path.canonical();
 
             if canonical_path.len() > PATH_MAX {
