@@ -409,7 +409,7 @@ impl Inode {
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
     pub fn parse<D: Device<u8, Ext2Error>>(
-        celled_device: Celled<'_, D>,
+        celled_device: &Celled<D>,
         superblock: &Superblock,
         n: u32,
     ) -> Result<Self, Error<Ext2Error>> {
@@ -459,7 +459,7 @@ impl Inode {
     #[inline]
     pub fn read_data<D: Device<u8, Ext2Error>>(
         &self,
-        celled_device: Celled<'_, D>,
+        celled_device: &Celled<D>,
         superblock: &Superblock,
         buffer: &mut [u8],
         mut offset: u64,
@@ -467,7 +467,7 @@ impl Inode {
         /// Returns the list of block addresses contained in the given indirect block.
         #[allow(clippy::cast_ptr_alignment)]
         fn read_indirect_block<D: Device<u8, Ext2Error>>(
-            celled_device: Celled<'_, D>,
+            celled_device: &Celled<D>,
             superblock: &Superblock,
             block_number: u32,
         ) -> Result<Vec<u32>, Error<Ext2Error>> {
@@ -579,13 +579,13 @@ impl Inode {
 
 #[cfg(test)]
 mod test {
-    use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
 
     use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
     use crate::fs::ext2::superblock::Superblock;
+    use crate::fs::ext2::Celled;
 
     #[test]
     fn struct_size() {
@@ -595,12 +595,12 @@ mod test {
     #[test]
     fn parse_root() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let celled_file = RefCell::new(file);
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = RefCell::new(file);
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
     }
@@ -608,12 +608,12 @@ mod test {
     #[test]
     fn failed_parse() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, 0).is_err());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, superblock.base().inodes_count + 1).is_err());
     }

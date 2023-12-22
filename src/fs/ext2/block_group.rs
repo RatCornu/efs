@@ -95,13 +95,13 @@ impl BlockGroupDescriptor {
 
 #[cfg(test)]
 mod test {
-    use alloc::rc::Rc;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
 
     use crate::fs::ext2::block_group::{BlockGroupDescriptor, BLOCK_GROUP_DESCRIPTOR_SIZE};
     use crate::fs::ext2::superblock::Superblock;
+    use crate::fs::ext2::Celled;
 
     #[test]
     fn struct_size() {
@@ -111,12 +111,12 @@ mod test {
     #[test]
     fn parse_first_block_group_descriptor() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, 0).is_ok());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, 0).is_ok());
     }
@@ -124,12 +124,12 @@ mod test {
     #[test]
     fn failed_parse() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, superblock.block_group_count()).is_err());
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = Rc::new(RefCell::new(file));
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(BlockGroupDescriptor::parse(&celled_file, &superblock, superblock.block_group_count()).is_err());
     }

@@ -1,10 +1,11 @@
 //! Interface to manipulate UNIX files on an ext2 filesystem.
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use no_std_io::io::{Read, Seek, SeekFrom};
+use no_std_io::io::{Read, Seek, SeekFrom, Write};
 
 use super::directory::Entry;
 use super::error::Ext2Error;
@@ -13,15 +14,14 @@ use super::{Celled, Ext2};
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
-use crate::file::{self, Stat};
+use crate::file::{self, DirectoryEntry, Stat};
 use crate::fs::error::FsError;
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
 
 /// General file implementation.
-#[derive(Clone)]
-pub struct File<'dev, D: Device<u8, Ext2Error>> {
+pub struct File<D: Device<u8, Ext2Error>> {
     /// Ext2 object associated with the device containing this file.
-    filesystem: Celled<'dev, Ext2<D>>,
+    filesystem: Celled<Ext2<D>>,
 
     /// Inode number of the inode corresponding to the file.
     inode_number: u32,
@@ -30,7 +30,7 @@ pub struct File<'dev, D: Device<u8, Ext2Error>> {
     inode: Inode,
 }
 
-impl<D: Device<u8, Ext2Error>> Debug for File<'_, D> {
+impl<D: Device<u8, Ext2Error>> Debug for File<D> {
     #[inline]
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
@@ -42,25 +42,25 @@ impl<D: Device<u8, Ext2Error>> Debug for File<'_, D> {
     }
 }
 
-impl<'dev, D: Device<u8, Ext2Error>> File<'dev, D> {
+impl<D: Device<u8, Ext2Error>> File<D> {
     /// Returns a new ext2's [`File`] from an [`Ext2`] instance and the inode number of the file.
     ///
     /// # Errors
     ///
     /// Returns the same errors as [`Inode::parse`].
     #[inline]
-    pub fn new(filesystem: Celled<'dev, Ext2<D>>, inode_number: u32) -> Result<Self, Error<Ext2Error>> {
+    pub fn new(filesystem: &Celled<Ext2<D>>, inode_number: u32) -> Result<Self, Error<Ext2Error>> {
         let fs = filesystem.borrow();
         let inode = Inode::parse(&fs.device, &fs.superblock, inode_number)?;
         Ok(Self {
-            filesystem,
+            filesystem: filesystem.clone(),
             inode_number,
             inode,
         })
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::File for File<'_, D> {
+impl<D: Device<u8, Ext2Error>> file::File for File<D> {
     #[inline]
     fn stat(&self) -> file::Stat {
         let filesystem = self.filesystem.borrow();
@@ -93,28 +93,28 @@ impl<D: Device<u8, Ext2Error>> file::File for File<'_, D> {
 }
 
 /// Implementation of a regular file.
-#[derive(Debug, Clone)]
-pub struct Regular<'dev, D: Device<u8, Ext2Error>> {
+#[derive(Debug)]
+pub struct Regular<D: Device<u8, Ext2Error>> {
     /// Inner file containing the regular file.
-    file: File<'dev, D>,
+    file: File<D>,
 
     /// Read/Write offset (can be manipulated with [`Seek`]).
     offset: u64,
 }
 
-impl<'dev, D: Device<u8, Ext2Error>> Regular<'dev, D> {
+impl<D: Device<u8, Ext2Error>> Regular<D> {
     /// Returns a new ext2's [`File`] from an [`Ext2`] instance and the inode number of the file.
     ///
     /// # Errors
     ///
     /// Otherwise, returns the same errors as [`Ext2::inode`].
     #[inline]
-    pub fn new(filesystem: Celled<'dev, Ext2<D>>, inode_number: u32) -> Result<Self, Error<Ext2Error>> {
+    pub fn new(filesystem: &Celled<Ext2<D>>, inode_number: u32) -> Result<Self, Error<Ext2Error>> {
         let fs = filesystem.borrow();
         let inode = fs.inode(inode_number)?;
         Ok(Self {
             file: File {
-                filesystem,
+                filesystem: filesystem.clone(),
                 inode_number,
                 inode,
             },
@@ -123,21 +123,20 @@ impl<'dev, D: Device<u8, Ext2Error>> Regular<'dev, D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::File for Regular<'_, D> {
+impl<D: Device<u8, Ext2Error>> file::File for Regular<D> {
     #[inline]
     fn stat(&self) -> Stat {
         self.file.stat()
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Read for Regular<'_, D> {
+impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> no_std_io::io::Result<usize> {
         let filesystem = self.file.filesystem.borrow();
-        let device = &filesystem.device;
         self.file
             .inode
-            .read_data(device, &filesystem.superblock, buf, self.offset)
+            .read_data(&filesystem.device, &filesystem.superblock, buf, self.offset)
             .map_err(|err| match err {
                 Error::Fs(FsError::Implementation(ext2_error)) => {
                     no_std_io::io::Error::new(no_std_io::io::ErrorKind::InvalidData, ext2_error.as_str())
@@ -150,7 +149,19 @@ impl<D: Device<u8, Ext2Error>> Read for Regular<'_, D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Seek for Regular<'_, D> {
+impl<D: Device<u8, Ext2Error>> Write for Regular<D> {
+    #[inline]
+    fn write(&mut self, _buf: &[u8]) -> no_std_io::io::Result<usize> {
+        todo!()
+    }
+
+    #[inline]
+    fn flush(&mut self) -> no_std_io::io::Result<()> {
+        todo!()
+    }
+}
+
+impl<D: Device<u8, Ext2Error>> Seek for Regular<D> {
     #[inline]
     fn seek(&mut self, pos: no_std_io::io::SeekFrom) -> no_std_io::io::Result<u64> {
         let filesystem = self.file.filesystem.borrow();
@@ -180,11 +191,13 @@ impl<D: Device<u8, Ext2Error>> Seek for Regular<'_, D> {
     }
 }
 
+impl<D: Device<u8, Ext2Error>> file::Regular for Regular<D> {}
+
 /// Interface for ext2's directories.
 #[derive(Debug)]
-pub struct Directory<'dev, D: Device<u8, Ext2Error>> {
+pub struct Directory<D: Device<u8, Ext2Error>> {
     /// Inner file containing the regular file.
-    file: File<'dev, D>,
+    file: File<D>,
 
     /// Entries contained in this directory.
     entries: Vec<Entry>,
@@ -195,14 +208,14 @@ pub struct Directory<'dev, D: Device<u8, Ext2Error>> {
     parent: Option<Box<Self>>,
 }
 
-impl<'dev, D: Device<u8, Ext2Error>> Directory<'dev, D> {
+impl<D: Device<u8, Ext2Error>> Directory<D> {
     /// Returns the directory located at the given inode number.
     ///
     /// # Errors
     ///
     /// Returns the same errors as [`Entry::parse`].
     #[inline]
-    pub fn new(filesystem: Celled<'dev, Ext2<D>>, inode_number: u32, parent: Option<Self>) -> Result<Self, Error<Ext2Error>> {
+    pub fn new(filesystem: &Celled<Ext2<D>>, inode_number: u32, parent: Option<Self>) -> Result<Self, Error<Ext2Error>> {
         let file = File::new(filesystem, inode_number)?;
         let fs = filesystem.borrow();
 
@@ -226,10 +239,50 @@ impl<'dev, D: Device<u8, Ext2Error>> Directory<'dev, D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::File for Directory<'_, D> {
+impl<D: Device<u8, Ext2Error>> file::File for Directory<D> {
     #[inline]
     fn stat(&self) -> Stat {
         self.file.stat()
+    }
+}
+
+impl<D: Device<u8, Ext2Error>> file::Directory<Regular<D>, SymbolicLink<D>, File<D>> for Directory<D> {
+    #[inline]
+    fn entries(&self) -> Vec<file::DirectoryEntry<Regular<D>, SymbolicLink<D>, File<D>, Self>> {
+        let mut entries = Vec::new();
+
+        for entry in &self.entries {
+            entries.push(DirectoryEntry {
+                filename: entry.name.clone().try_into().expect(""),
+                file: self.file.filesystem.borrow().file(entry.inode).expect(""),
+            });
+        }
+
+        entries
+    }
+}
+
+/// Interface for ext2's symbolic links.
+#[derive(Debug)]
+pub struct SymbolicLink<D: Device<u8, Ext2Error>> {
+    /// Inner file containing the symbolic link.
+    file: File<D>,
+
+    /// Read/Write offset (can be manipulated with [`Seek`]).
+    pointed_file: String,
+}
+
+impl<D: Device<u8, Ext2Error>> file::File for SymbolicLink<D> {
+    #[inline]
+    fn stat(&self) -> Stat {
+        self.file.stat()
+    }
+}
+
+impl<D: Device<u8, Ext2Error>> file::SymbolicLink for SymbolicLink<D> {
+    #[inline]
+    fn pointed_file(&self) -> &str {
+        &self.pointed_file
     }
 }
 
@@ -245,12 +298,12 @@ mod test {
     use crate::fs::ext2::file::Directory;
     use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
     use crate::fs::ext2::superblock::Superblock;
-    use crate::fs::ext2::Ext2;
+    use crate::fs::ext2::{Celled, Ext2};
 
     #[test]
     fn parse_root() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let ext2 = RefCell::new(Ext2::new(file, 0).unwrap());
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
         let root = Directory::new(&ext2, ROOT_DIRECTORY_INODE, None).unwrap();
         assert_eq!(
             root.entries
@@ -264,7 +317,7 @@ mod test {
     #[test]
     fn parse_root_entries() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = RefCell::new(file);
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         let root_inode = Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).unwrap();
 
@@ -309,7 +362,7 @@ mod test {
     #[test]
     fn parse_big_file_inode_data() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let ext2 = RefCell::new(Ext2::new(file, 0).unwrap());
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
         let root = Directory::new(&ext2, ROOT_DIRECTORY_INODE, None).unwrap();
 
         let fs = ext2.borrow();

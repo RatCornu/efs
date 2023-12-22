@@ -124,7 +124,7 @@ pub trait SymbolicLink: File {
 }
 
 /// Enumeration of possible file types in a standard UNIX-like filesystem.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     /// Storage unit of a filesystem.
     Regular,
@@ -151,9 +151,15 @@ pub enum Type {
     Other,
 }
 
-/// Enumeration of possible file types in a standard UNIX-like filesystem.
+/// Enumeration of possible file types in a standard UNIX-like filesystem with an attached file object.
 ///
-/// Same elements as [`Type`] with an associated file.
+/// # Note
+///
+/// This enum does not contain the [`Fifo`](Type::Fifo), [`CharacterDevice`](Type::CharacterDevice),
+/// [`BlockDevice`](Type::BlockDevice) or [`Socket`](Type::Socket) as those are special files that have no real presence in the
+/// filesystem: they are abstractions created by the kernel. Thus, only the [`Regular`](Type::Regular),
+/// [`Directory`](Type::Directory) and the [`SymbolicLink`](Type::SymbolicLink) can be found (and the files not described in the
+/// POSIX norm).
 #[allow(clippy::module_name_repetitions)]
 pub enum TypeWithFile<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>> {
     /// Storage unit of a filesystem.
@@ -167,4 +173,30 @@ pub enum TypeWithFile<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F
 
     /// A file system dependant file (e.g [the Doors](https://en.wikipedia.org/wiki/Doors_(computing)) on Solaris systems).
     Other(F),
+}
+
+impl<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>> From<TypeWithFile<R, S, F, D>> for Type {
+    #[inline]
+    fn from(value: TypeWithFile<R, S, F, D>) -> Self {
+        match value {
+            TypeWithFile::Regular(_) => Self::Regular,
+            TypeWithFile::Directory(_) => Self::Directory,
+            TypeWithFile::SymbolicLink(_) => Self::SymbolicLink,
+            TypeWithFile::Other(_) => Self::Other,
+        }
+    }
+}
+
+impl<R: Regular + Clone, S: SymbolicLink + Clone, F: File + Clone, D: Directory<R, S, F> + Clone> Clone
+    for TypeWithFile<R, S, F, D>
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        match self {
+            Self::Regular(file) => Self::Regular(file.clone()),
+            Self::Directory(file) => Self::Directory(file.clone()),
+            Self::SymbolicLink(file) => Self::SymbolicLink(file.clone()),
+            Self::Other(file) => Self::Other(file.clone()),
+        }
+    }
 }

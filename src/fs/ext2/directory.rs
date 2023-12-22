@@ -68,7 +68,7 @@ impl Entry {
     /// Must also ensure the requirements of [`Device::read_at`].
     #[inline]
     pub unsafe fn parse<Dev: Device<u8, Ext2Error>>(
-        celled_device: Celled<'_, Dev>,
+        celled_device: &Celled<Dev>,
         starting_addr: Address,
     ) -> Result<Self, Error<Ext2Error>> {
         let device = celled_device.borrow();

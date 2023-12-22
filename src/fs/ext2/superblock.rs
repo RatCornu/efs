@@ -540,7 +540,7 @@ impl ExtendedFields {
 }
 
 /// Superblock of the Ext2 filesystem.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Superblock {
     /// Basic superblock (with a [`major version`](struct.Base.html#structfield.rev_level) lower than 1)
     Basic(Base),
@@ -558,7 +558,7 @@ impl Superblock {
     ///
     /// Returns an [`Error`] if the device could not be read.
     #[inline]
-    pub fn parse<D: Device<u8, Ext2Error>>(celled_device: Celled<'_, D>) -> Result<Self, Error<Ext2Error>> {
+    pub fn parse<D: Device<u8, Ext2Error>>(celled_device: &Celled<D>) -> Result<Self, Error<Ext2Error>> {
         let device = celled_device.borrow();
 
         // SAFETY: all the possible failures are catched in the resulting error
@@ -730,6 +730,7 @@ mod test {
 
     use super::Superblock;
     use crate::fs::ext2::superblock::{Base, ExtendedFields};
+    use crate::fs::ext2::Celled;
 
     #[test]
     fn struct_size() {
@@ -740,7 +741,7 @@ mod test {
     #[test]
     fn basic_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
-        let celled_file = RefCell::new(file);
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(!superblock.is_extended());
         let base = superblock.base();
@@ -751,7 +752,7 @@ mod test {
     #[test]
     fn extended_superblock() {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
-        let celled_file = RefCell::new(file);
+        let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(superblock.is_extended());
         let base = superblock.base();
@@ -762,7 +763,7 @@ mod test {
     #[test]
     fn failed_parse() {
         let device = vec![0_u8; 2048];
-        let celled_device = RefCell::new(device);
+        let celled_device = Celled::new(device);
         assert!(Superblock::parse(&celled_device).is_err());
     }
 }
