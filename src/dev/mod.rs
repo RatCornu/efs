@@ -4,15 +4,12 @@ use alloc::borrow::{Cow, ToOwned};
 use alloc::boxed::Box;
 use alloc::slice;
 use alloc::vec::Vec;
-#[cfg(feature = "std")]
 use core::cell::RefCell;
 use core::iter::Step;
 use core::mem::{size_of, transmute_copy};
 use core::ops::{Deref, DerefMut, Range};
 use core::ptr::{addr_of, slice_from_raw_parts};
-#[cfg(feature = "std")]
 use std::fs::File;
-#[cfg(feature = "std")]
 use std::io::{Read, Seek, Write};
 
 use self::sector::Address;
@@ -332,7 +329,7 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     type Error = Error<E>;
 
@@ -354,7 +351,7 @@ impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
                 (0, i128::MAX),
             ))
         })?;
-        let mut slice = vec![0; len];
+        let mut slice = alloc::vec![0; len];
         let mut file = self.borrow_mut();
         file.seek(std::io::SeekFrom::Start(starting_addr.index().try_into().expect("Could not convert `usize` to `u64`")))
             .and_then(|_| file.read_exact(&mut slice))
@@ -375,6 +372,8 @@ impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
 
 #[cfg(test)]
 mod test {
+    use alloc::string::String;
+    use alloc::vec;
     use core::cell::RefCell;
     use core::fmt::Display;
     use core::mem::size_of;

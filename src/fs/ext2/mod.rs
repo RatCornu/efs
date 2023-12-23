@@ -2,80 +2,19 @@
 //!
 //! See [its Wikipedia page](https://fr.wikipedia.org/wiki/Ext2), [its OSDev page](https://wiki.osdev.org/Ext2), and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html) for more information.
 
-#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
-#![deny(
-    clippy::complexity,
-    clippy::correctness,
-    clippy::nursery,
-    clippy::pedantic,
-    clippy::perf,
-    clippy::restriction,
-    clippy::style,
-    missing_docs
-)]
-#![allow(
-    clippy::absolute_paths,
-    clippy::arithmetic_side_effects,
-    clippy::as_conversions,
-    clippy::blanket_clippy_restriction_lints,
-    clippy::else_if_without_else,
-    clippy::exhaustive_enums,
-    clippy::exhaustive_structs,
-    clippy::expect_used,
-    clippy::implicit_return,
-    clippy::integer_division,
-    clippy::match_same_arms,
-    clippy::match_wildcard_for_single_variants,
-    clippy::missing_trait_methods,
-    clippy::mod_module_files,
-    clippy::panic,
-    clippy::panic_in_result_fn,
-    clippy::pattern_type_mismatch,
-    clippy::question_mark_used,
-    clippy::separated_literal_suffix,
-    clippy::shadow_reuse,
-    clippy::shadow_unrelated,
-    clippy::todo,
-    clippy::unreachable,
-    clippy::use_debug,
-    clippy::unwrap_in_result,
-    clippy::wildcard_in_or_patterns,
-    const_item_mutation
-)]
-#![cfg_attr(
-    test,
-    allow(
-        clippy::assertions_on_result_states,
-        clippy::collection_is_never_read,
-        clippy::enum_glob_use,
-        clippy::indexing_slicing,
-        clippy::non_ascii_literal,
-        clippy::too_many_lines,
-        clippy::undocumented_unsafe_blocks,
-        clippy::unwrap_used,
-        clippy::wildcard_imports
-    )
-)]
-#![feature(error_in_core)]
-
-extern crate alloc;
-extern crate core;
-#[cfg(feature = "std")]
-extern crate std;
-
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
-use base::dev::Device;
-use base::error::Error;
-use base::file::{Type, TypeWithFile};
-use base::fs::error::FsError;
 use derive_more::{Deref, DerefMut};
 
 use self::error::Ext2Error;
 use self::file::{Directory, File, Regular, SymbolicLink};
 use self::inode::Inode;
 use self::superblock::Superblock;
+use crate::dev::Device;
+use crate::error::Error;
+use crate::file::{Type, TypeWithFile};
+use crate::fs::error::FsError;
 
 pub mod block_group;
 pub mod directory;
@@ -183,14 +122,13 @@ mod test {
     use core::cell::RefCell;
     use std::fs::File;
 
-    use base::file::Type;
-
     use super::inode::ROOT_DIRECTORY_INODE;
     use super::Ext2;
+    use crate::file::Type;
 
     #[test]
     fn base_fs() {
-        let device = RefCell::new(File::options().read(true).write(true).open("./tests//base.ext2").unwrap());
+        let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
         let ext2 = Ext2::new(device, 0).unwrap();
         let root = ext2.inode(ROOT_DIRECTORY_INODE).unwrap();
         assert_eq!(root.file_type().unwrap(), Type::Directory);

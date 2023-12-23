@@ -6,13 +6,12 @@ use alloc::ffi::CString;
 use core::fmt::Debug;
 use core::mem::size_of;
 
-use base::dev::sector::Address;
-use base::dev::Device;
-use base::error::Error;
-use base::fs::error::FsError;
-
 use super::error::Ext2Error;
 use super::Celled;
+use crate::dev::sector::Address;
+use crate::dev::Device;
+use crate::error::Error;
+use crate::fs::error::FsError;
 
 /// Subset of the [`Entry`] structure to make easier its read on the device.
 #[repr(packed)]
@@ -92,7 +91,7 @@ impl Entry {
 mod test {
     use core::mem::size_of;
 
-    use crate::directory::{Entry, Subfields};
+    use crate::fs::ext2::directory::{Entry, Subfields};
 
     #[test]
     fn struct_size() {

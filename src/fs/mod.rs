@@ -15,6 +15,9 @@ use crate::path::{Component, Path};
 
 pub mod error;
 
+#[cfg(feature = "ext2")]
+pub mod ext2;
+
 /// Maximal length for a path.
 ///
 /// This is defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13).

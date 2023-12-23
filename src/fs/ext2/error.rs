@@ -3,9 +3,8 @@
 use core::error;
 use core::fmt::{self, Display};
 
-use base::file::Type;
-
 use super::superblock::EXT2_SIGNATURE;
+use crate::file::Type;
 
 /// Enumeration of possible errors encountered with Ext2's manipulation.
 #[allow(clippy::module_name_repetitions)]

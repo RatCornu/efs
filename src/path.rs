@@ -62,13 +62,13 @@ impl<'path> UnixStr<'path> {
     /// # Examples
     ///
     /// ```
-    /// use base::path::UnixStr;
+    /// use efs::path::UnixStr;
     ///
     /// let valid = UnixStr::new("/").unwrap();
     /// ```
     ///
     /// ```should_panic
-    /// use base::path::UnixStr;
+    /// use efs::path::UnixStr;
     ///
     /// let not_valid = UnixStr::new("").unwrap();
     /// ```
@@ -171,7 +171,7 @@ impl<'path> Path<'path> {
     /// ```
     /// use core::str::FromStr;
     ///
-    /// use base::path::Path;
+    /// use efs::path::Path;
     ///
     /// assert!(Path::from_str("/home").unwrap().is_absolute());
     /// assert!(!Path::from_str("./foo/bar").unwrap().is_absolute());
@@ -192,7 +192,7 @@ impl<'path> Path<'path> {
     /// ```
     /// use core::str::FromStr;
     ///
-    /// use base::path::Path;
+    /// use efs::path::Path;
     ///
     /// assert!(Path::from_str("./foo/bar").unwrap().is_relative());
     /// assert!(!Path::from_str("/home").unwrap().is_relative());
@@ -211,7 +211,7 @@ impl<'path> Path<'path> {
     /// ```
     /// use core::str::FromStr;
     ///
-    /// use base::path::Path;
+    /// use efs::path::Path;
     ///
     /// assert_eq!(
     ///     Path::from_str("/home/user/foo").unwrap(),
@@ -272,7 +272,7 @@ impl<'path> Path<'path> {
     /// ```
     /// use core::str::FromStr;
     ///
-    /// use base::path::Path;
+    /// use efs::path::Path;
     ///
     /// let first_path = Path::from_str("/home").unwrap();
     /// let second_path = Path::from_str("user").unwrap();
@@ -354,7 +354,7 @@ impl PartialEq for Path<'_> {
     /// ```
     /// use core::str::FromStr;
     ///
-    /// use base::path::{Path, UnixStr};
+    /// use efs::path::{Path, UnixStr};
     ///
     /// assert_eq!(Path::from_str("/").unwrap(), Path::from_str("///").unwrap());
     ///
@@ -738,6 +738,7 @@ impl ToString for Components<'_> {
 
 #[cfg(test)]
 mod test {
+    use alloc::string::ToString;
     use core::str::FromStr;
 
     use crate::path::{Component, Path, UnixStr};

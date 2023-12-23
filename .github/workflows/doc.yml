@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Generate documentation
-        run: RUSTDOCFLAGS="--enable-index-page -Zunstable-options" cargo doc --no-deps --workspace --all-features
+        run: cargo doc --no-deps --all-features
+      - name: Create index file
+        run: echo "<meta http-equiv=\"refresh\" content=\"0; url=efs\">" > target/doc/index.html
       - name: Upload page artifact
         uses: actions/upload-pages-artifact@v1
         with:

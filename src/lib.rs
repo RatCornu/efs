@@ -2,7 +2,7 @@
 //!
 //! An OS and architecture independent implementation of some Unix filesystems in Rust.
 
-#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
+#![no_std]
 #![deny(
     clippy::complexity,
     clippy::correctness,
@@ -56,9 +56,20 @@
         clippy::wildcard_imports
     )
 )]
+#![feature(const_mut_refs)]
 #![feature(doc_cfg)]
+#![feature(doc_auto_cfg)]
+#![feature(error_in_core)]
+#![feature(step_trait)]
 
 extern crate alloc;
 extern crate core;
-#[cfg(feature = "std")]
+#[cfg(any(test, feature = "std"))]
 extern crate std;
+
+pub mod dev;
+pub mod error;
+pub mod file;
+pub mod fs;
+pub mod path;
+pub mod types;

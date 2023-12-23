@@ -4,19 +4,19 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use base::dev::sector::Address;
-use base::dev::Device;
-use base::error::Error;
-use base::file::{self, DirectoryEntry, Stat};
-use base::fs::error::FsError;
-use base::fs::PATH_MAX;
-use base::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
 use no_std_io::io::{Read, Seek, SeekFrom, Write};
 
 use super::directory::Entry;
 use super::error::Ext2Error;
 use super::inode::Inode;
 use super::{Celled, Ext2};
+use crate::dev::sector::Address;
+use crate::dev::Device;
+use crate::error::Error;
+use crate::file::{self, DirectoryEntry, Stat};
+use crate::fs::error::FsError;
+use crate::fs::PATH_MAX;
+use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
 
 /// General file implementation.
 pub struct File<D: Device<u8, Ext2Error>> {
@@ -296,21 +296,24 @@ impl<D: Device<u8, Ext2Error>> file::SymbolicLink for SymbolicLink<D> {
 
 #[cfg(test)]
 mod test {
+    use alloc::string::{String, ToString};
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::cell::RefCell;
     use std::fs::File;
 
-    use base::dev::sector::Address;
     use itertools::Itertools;
 
-    use crate::directory::Entry;
-    use crate::file::Directory;
-    use crate::inode::{Inode, ROOT_DIRECTORY_INODE};
-    use crate::superblock::Superblock;
-    use crate::{Celled, Ext2};
+    use crate::dev::sector::Address;
+    use crate::fs::ext2::directory::Entry;
+    use crate::fs::ext2::file::Directory;
+    use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
+    use crate::fs::ext2::superblock::Superblock;
+    use crate::fs::ext2::{Celled, Ext2};
 
     #[test]
     fn parse_root() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
         let root = Directory::new(&ext2, ROOT_DIRECTORY_INODE).unwrap();
         assert_eq!(
@@ -324,7 +327,7 @@ mod test {
 
     #[test]
     fn parse_root_entries() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         let root_inode = Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).unwrap();
@@ -369,7 +372,7 @@ mod test {
 
     #[test]
     fn parse_big_file_inode_data() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
         let root = Directory::new(&ext2, ROOT_DIRECTORY_INODE).unwrap();
 

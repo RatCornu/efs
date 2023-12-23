@@ -4,14 +4,14 @@
 
 use core::mem::size_of;
 
-use base::dev::sector::Address;
-use base::dev::Device;
-use base::error::Error;
-use base::fs::error::FsError;
 use bitflags::bitflags;
 
 use super::error::Ext2Error;
 use super::Celled;
+use crate::dev::sector::Address;
+use crate::dev::Device;
+use crate::error::Error;
+use crate::fs::error::FsError;
 
 /// Ext2 signature, used to help confirm the presence of an Ext2 volume.
 pub const EXT2_SIGNATURE: u16 = 0xef53;
@@ -724,13 +724,14 @@ impl Superblock {
 
 #[cfg(test)]
 mod test {
+    use alloc::vec;
     use core::cell::RefCell;
     use core::mem::size_of;
     use std::fs::File;
 
     use super::Superblock;
-    use crate::superblock::{Base, ExtendedFields};
-    use crate::Celled;
+    use crate::fs::ext2::superblock::{Base, ExtendedFields};
+    use crate::fs::ext2::Celled;
 
     #[test]
     fn struct_size() {
@@ -740,7 +741,7 @@ mod test {
 
     #[test]
     fn basic_superblock() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests//base.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(!superblock.is_extended());
@@ -751,7 +752,7 @@ mod test {
 
     #[test]
     fn extended_superblock() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(superblock.is_extended());
