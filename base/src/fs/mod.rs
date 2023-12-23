@@ -14,7 +14,6 @@ use crate::fs::error::FsError;
 use crate::path::{Component, Path};
 
 pub mod error;
-pub mod ext2;
 
 /// Maximal length for a path.
 ///

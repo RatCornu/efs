@@ -24,6 +24,4 @@ jobs:
       - name: Build
         run: cargo build
       - name: Tests
-        run: |
-          cargo test --all-features
-          cargo test --all-features
+        run: cargo test --all-features --workspace

@@ -1,0 +1,27 @@
+[package]
+name = "ext2"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description.workspace = true
+documentation.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+
+[dependencies]
+base = { path = "../base" }
+
+bitflags.workspace = true
+derive_more.workspace = true
+itertools.workspace = true
+no_std_io.workspace = true
+
+[features]
+default = []
+std = ["base/std"]

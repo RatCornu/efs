@@ -1,8 +1,8 @@
-//! Extended fs
+//! Extended fs.
 //!
 //! An OS and architecture independent implementation of some Unix filesystems in Rust.
 
-#![cfg_attr(all(not(test), not(std), feature = "no_std"), no_std)]
+#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![deny(
     clippy::complexity,
     clippy::correctness,
@@ -56,25 +56,9 @@
         clippy::wildcard_imports
     )
 )]
-#![feature(const_mut_refs)]
-#![feature(cow_is_borrowed)]
 #![feature(doc_cfg)]
-#![feature(doc_auto_cfg)]
-#![feature(error_in_core)]
-#![feature(iter_advance_by)]
-#![feature(let_chains)]
-#![feature(new_uninit)]
-#![feature(step_trait)]
-#![feature(trait_upcasting)]
 
 extern crate alloc;
 extern crate core;
-#[cfg(not(no_std))]
+#[cfg(feature = "std")]
 extern crate std;
-
-pub mod dev;
-pub mod error;
-pub mod file;
-pub mod fs;
-pub mod path;
-pub mod types;

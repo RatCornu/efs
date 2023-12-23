@@ -6,6 +6,11 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 use core::slice::from_raw_parts;
 
+use base::dev::sector::Address;
+use base::dev::Device;
+use base::error::Error;
+use base::file::Type;
+use base::fs::error::FsError;
 use bitflags::bitflags;
 use itertools::Itertools;
 
@@ -13,11 +18,6 @@ use super::block_group::BlockGroupDescriptor;
 use super::error::Ext2Error;
 use super::superblock::{OperatingSystem, Superblock};
 use super::Celled;
-use crate::dev::sector::Address;
-use crate::dev::Device;
-use crate::error::Error;
-use crate::file::Type;
-use crate::fs::error::FsError;
 
 /// Reserved bad block inode number.
 pub const BAD_BLOCKS_INODE: u32 = 1;
@@ -583,9 +583,9 @@ mod test {
     use core::mem::size_of;
     use std::fs::File;
 
-    use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
-    use crate::fs::ext2::superblock::Superblock;
-    use crate::fs::ext2::Celled;
+    use crate::inode::{Inode, ROOT_DIRECTORY_INODE};
+    use crate::superblock::Superblock;
+    use crate::Celled;
 
     #[test]
     fn struct_size() {
@@ -594,12 +594,12 @@ mod test {
 
     #[test]
     fn parse_root() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests//base.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
 
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).is_ok());
@@ -607,12 +607,12 @@ mod test {
 
     #[test]
     fn failed_parse() {
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests//base.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, 0).is_err());
 
-        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests//extended.ext2").unwrap());
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, superblock.base().inodes_count + 1).is_err());
