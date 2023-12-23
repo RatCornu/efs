@@ -42,7 +42,7 @@ impl<T> Celled<T> {
     }
 }
 
-/// TODO
+/// Type alias to reduce complexity in functions' types.
 #[allow(clippy::module_name_repetitions)]
 pub type Ext2TypeWithFile<Dev> = TypeWithFile<Regular<Dev>, SymbolicLink<Dev>, File<Dev>, Directory<Dev>>;
 
@@ -92,19 +92,24 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     pub fn inode(&self, inode_number: u32) -> Result<Inode, Error<Ext2Error>> {
         Inode::parse(&self.device, &self.superblock, inode_number)
     }
+}
 
-    /// TODO
+impl<Dev: Device<u8, Ext2Error>> Celled<Ext2<Dev>> {
+    /// Returns a [`File`](crate::file::File) directly read on this filesystem.
     ///
     /// # Errors
     ///
-    /// TODO
+    /// Returns an [`BadFileType`](Ext2Error::BadFileType) if the type of the file pointed by the given inode is ill-formed.
+    ///
+    /// Otherwise, returns the same errors as [`Inode::parse`].
     #[inline]
     pub fn file(&self, inode_number: u32) -> Result<Ext2TypeWithFile<Dev>, Error<Ext2Error>> {
-        let inode = self.inode(inode_number)?;
+        let filesystem = self.borrow();
+        let inode = filesystem.inode(inode_number)?;
         match inode.file_type().map_err(|err| Error::Fs(FsError::Implementation(err)))? {
-            Type::Regular => todo!(),
-            Type::Directory => todo!(),
-            Type::SymbolicLink => todo!(),
+            Type::Regular => Ok(TypeWithFile::Regular(Regular::new(&self.clone(), inode_number)?)),
+            Type::Directory => Ok(TypeWithFile::Directory(Directory::new(&self.clone(), inode_number)?)),
+            Type::SymbolicLink => Ok(TypeWithFile::SymbolicLink(SymbolicLink::new(&self.clone(), inode_number)?)),
             Type::Fifo | Type::CharacterDevice | Type::BlockDevice | Type::Socket | Type::Other => unreachable!(
                 "The only type of files in ext2's filesystems that are written on the device are the regular files, the directories and the symbolic links"
             ),

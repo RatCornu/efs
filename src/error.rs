@@ -33,3 +33,10 @@ impl<E: core::error::Error> Display for Error<E> {
 }
 
 impl<E: core::error::Error> error::Error for Error<E> {}
+
+impl<E: core::error::Error> From<E> for Error<E> {
+    #[inline]
+    fn from(value: E) -> Self {
+        Self::Fs(FsError::Implementation(value))
+    }
+}
