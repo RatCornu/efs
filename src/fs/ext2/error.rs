@@ -42,8 +42,14 @@ pub enum Ext2Error {
     /// Tried to access a non-existing block group.
     NonExistingBlockGroup(u32),
 
+    /// Tried to access a non-existing block.
+    NonExistingBlock(u32),
+
     /// Tried to access a non-existing inode.
     NonExistingInode(u32),
+
+    /// Requested more free blocks than currently available.
+    NotEnoughFreeBlocks(u32, u32),
 
     /// Tried to assign a wrong type to a file.
     WrongFileType(Type, Type),
@@ -72,8 +78,14 @@ impl Display for Ext2Error {
             Self::NonExistingBlockGroup(nth) => {
                 write!(formatter, "Non Existing Block Group: tried to access the {nth} block group which does not exist")
             },
+            Self::NonExistingBlock(nth) => {
+                write!(formatter, "Non Existing Block: tried to access the {nth} block which does not exist")
+            },
             Self::NonExistingInode(nth) => {
                 write!(formatter, "Non Existing Inode: tried to access the {nth} inode which does not exist")
+            },
+            Self::NotEnoughFreeBlocks(requested, available) => {
+                write!(formatter, "Not Enough Free Blocks: requested {requested} free blocks while only {available} are available")
             },
             Self::WrongFileType(expected, given) => {
                 write!(formatter, "Wrong File Type: {expected:?} file type expected, {given:?} given")
@@ -98,7 +110,9 @@ impl Ext2Error {
             Self::InvalidCompressionAlgorithm(_) => "Invalid Compression Algorithm",
             Self::NoExtendedFields => "No Extended Fields",
             Self::NonExistingBlockGroup(_) => "Non Existing Block Group",
+            Self::NonExistingBlock(_) => "Non Existing Block",
             Self::NonExistingInode(_) => "Non Existing Inode",
+            Self::NotEnoughFreeBlocks(_, _) => "Not Enough Free Blocks",
             Self::WrongFileType(_, _) => "Wrong File Type",
         }
     }
