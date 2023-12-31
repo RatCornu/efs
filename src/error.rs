@@ -9,7 +9,7 @@ use crate::path::PathError;
 
 /// Enumeration of possible sources of error
 #[allow(clippy::error_impl_error)]
-#[derive(Debug)]
+#[derive(Debug)] // TODO: use thiserror to simplify error usage
 pub enum Error<E: core::error::Error> {
     /// Device error
     Device(DevError),

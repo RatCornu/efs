@@ -2,21 +2,24 @@
 //!
 //! See [its Wikipedia page](https://fr.wikipedia.org/wiki/Ext2), [its OSDev page](https://wiki.osdev.org/Ext2), and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html) for more information.
 
+use alloc::vec;
 use alloc::vec::Vec;
+use core::mem::size_of;
 
+use self::block::Block;
 use self::block_group::BlockGroupDescriptor;
 use self::error::Ext2Error;
 use self::file::{Directory, File, Regular, SymbolicLink};
 use self::inode::Inode;
-use self::superblock::Superblock;
+use self::superblock::{Superblock, SUPERBLOCK_START_BYTE};
 use crate::dev::celled::Celled;
-use crate::dev::error::DevError;
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
 use crate::file::{Type, TypeWithFile};
 use crate::fs::error::FsError;
 
+pub mod block;
 pub mod block_group;
 pub mod directory;
 pub mod error;
@@ -26,7 +29,7 @@ pub mod superblock;
 
 /// Type alias to reduce complexity in functions' types.
 #[allow(clippy::module_name_repetitions)]
-pub type Ext2TypeWithFile<Dev> = TypeWithFile<Regular<Dev>, SymbolicLink<Dev>, File<Dev>, Directory<Dev>>;
+pub type Ext2TypeWithFile<Dev> = TypeWithFile<Ext2Error, Regular<Dev>, SymbolicLink<Dev>, File<Dev>, Directory<Dev>>;
 
 /// Main interface for devices containing an ext2 filesystem.
 #[derive(Clone)]
@@ -65,37 +68,6 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
         &self.superblock
     }
 
-    /// Reads the `n` block of the device and returns its content.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`NonExistingBlock`](Ext2Error::NonExistingBlock) if the requested block does not exist.
-    ///
-    /// Returns an [`Error`] if the device cannot be read.
-    #[inline]
-    pub fn read_block(&self, n: u32) -> Result<Vec<u8>, Error<Ext2Error>> {
-        if n > self.superblock().base().blocks_count {
-            return Err(Error::Fs(FsError::Implementation(Ext2Error::NonExistingBlock(n))));
-        }
-
-        let device = self.device.borrow();
-
-        let starting_index = n * self.superblock().block_size();
-        let starting_addr = Address::try_from(starting_index).map_err(|_err| {
-            Error::Device(DevError::OutOfBounds(
-                "address",
-                starting_index.into(),
-                // SAFETY: the size of a file is smaller than `i128::MAX`
-                (0, unsafe { usize::from(device.size().0).try_into().unwrap_unchecked() }),
-            ))
-        })?;
-
-        Ok(device
-            .slice(starting_addr..starting_addr + self.superblock().block_size() as usize)?
-            .as_ref()
-            .to_vec())
-    }
-
     /// Returns the [`Inode`] with the given number.
     ///
     /// # Errors
@@ -106,53 +78,52 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
         Inode::parse(&self.device, &self.superblock, inode_number)
     }
 
-    /// Returns a [`Vec`] containing the block numbers of `n` free blocks.
+    /// Updates the inner [`Superblock`].
     ///
     /// # Errors
     ///
-    /// Returns an [`NotEnoughFreeBlocks`](Ext2Error::NotEnoughFreeBlocks) error if requested more free blocks than available.
-    ///
     /// Returns an [`Error`] if the device cannot be read.
-    #[inline]
-    pub fn free_blocks(&self, n: u32) -> Result<Vec<u32>, Error<Ext2Error>> {
-        if n > self.superblock().base().free_blocks_count {
-            return Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughFreeBlocks(
-                n,
-                self.superblock().base().free_blocks_count,
-            ))));
-        }
-
-        let mut free_blocks = Vec::new();
-
-        for block_group_count in 0_u32..self.superblock().base().block_group_count() {
-            let block_group_descriptor = BlockGroupDescriptor::parse(&self.device, self.superblock(), block_group_count)?;
-            let block_group_bitmap_block = block_group_descriptor.block_bitmap;
-            let block_group_bitmap = self.read_block(block_group_bitmap_block)?;
-            for (index, eight_blocks_bitmap) in block_group_bitmap.iter().enumerate() {
-                // SAFETY: a block size is usually at most thousands of bytes, which is smaller than `u32::MAX`
-                let index = unsafe { u32::try_from(index).unwrap_unchecked() };
-                for bit in 0_u32..8_u32 {
-                    if (eight_blocks_bitmap >> bit) & 0x01 == 0x00 {
-                        free_blocks.push(block_group_count * self.superblock().base().blocks_per_group + index * 8 + bit);
-                        // SAFETY: free_blocks.len() is smaller than n  which is a u32 (not equal to 0xFFFF)
-                        if unsafe { u32::try_from(free_blocks.len()).unwrap_unchecked() } == n {
-                            return Ok(free_blocks);
-                        }
-                    }
-                }
-            }
-        }
-
-        // SAFETY: free_blocks.len() is smaller than n  which is a u32 (not equal to 0xFFFF)
-        Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughFreeBlocks(n, unsafe {
-            free_blocks.len().try_into().unwrap_unchecked()
-        }))))
-    }
-
-    /// Updates the inner [`Superblock`].
-    fn update_superblock(&mut self) -> Result<(), Error<Ext2Error>> {
+    fn update_inner_superblock(&mut self) -> Result<(), Error<Ext2Error>> {
         self.superblock = Superblock::parse(&self.device)?;
         Ok(())
+    }
+
+    /// Sets the device's superblock to the given object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the device cannot be written.
+    ///
+    /// # Safety
+    ///
+    /// Must ensure that the given superblock is coherent with the current state of the filesystem.
+    unsafe fn set_superblock(&mut self, superblock: &Superblock) -> Result<(), Error<Ext2Error>> {
+        self.update_inner_superblock()?;
+        let mut device = self.device.borrow_mut();
+
+        device.write_at(Address::new(SUPERBLOCK_START_BYTE), superblock.base())?;
+
+        if let Some(extended) = superblock.extended_fields() {
+            device.write_at(Address::new(SUPERBLOCK_START_BYTE + size_of::<superblock::Base>()), extended)?;
+        }
+
+        Ok(())
+    }
+
+    /// Sets the counter of free blocks in the superblock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the device cannot be written.
+    ///
+    /// # Safety
+    ///
+    /// Must ensure that the given `value` corresponds to the real count of free blocks in the filesystem.
+    unsafe fn set_free_blocks(&mut self, value: u32) -> Result<(), Error<Ext2Error>> {
+        let mut superblock = self.superblock().clone();
+        superblock.base_mut().free_blocks_count = value;
+
+        self.set_superblock(&superblock)
     }
 }
 
@@ -177,6 +148,55 @@ impl<Dev: Device<u8, Ext2Error>> Celled<Ext2<Dev>> {
             ),
         }
     }
+
+    /// Returns a [`Vec`] containing the block numbers of `n` free blocks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`NotEnoughFreeBlocks`](Ext2Error::NotEnoughFreeBlocks) error if requested more free blocks than available.
+    ///
+    /// Returns an [`Error`] if the device cannot be read.
+    #[inline]
+    pub fn free_blocks(&self, n: u32) -> Result<Vec<u32>, Error<Ext2Error>> {
+        if n == 0 {
+            return Ok(vec![]);
+        }
+
+        let fs = self.borrow();
+
+        if n > fs.superblock().base().free_blocks_count {
+            return Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughFreeBlocks(
+                n,
+                fs.superblock().base().free_blocks_count,
+            ))));
+        }
+
+        let mut free_blocks = Vec::new();
+
+        for block_group_count in 0_u32..fs.superblock().base().block_group_count() {
+            let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group_count)?;
+            let mut block_group_bitmap_block = Block::new(self.clone(), block_group_descriptor.block_bitmap);
+            let block_group_bitmap = block_group_bitmap_block.read_all()?;
+            for (index, eight_blocks_bitmap) in block_group_bitmap.iter().enumerate() {
+                // SAFETY: a block size is usually at most thousands of bytes, which is smaller than `u32::MAX`
+                let index = unsafe { u32::try_from(index).unwrap_unchecked() };
+                for bit in 0_u32..8_u32 {
+                    if (eight_blocks_bitmap >> bit) & 0x01 == 0x00 {
+                        free_blocks.push(block_group_count * fs.superblock().base().blocks_per_group + index * 8 + bit);
+                        // SAFETY: free_blocks.len() is smaller than n  which is a u32 (not equal to 0xFFFF)
+                        if unsafe { u32::try_from(free_blocks.len()).unwrap_unchecked() } == n {
+                            return Ok(free_blocks);
+                        }
+                    }
+                }
+            }
+        }
+
+        // SAFETY: free_blocks.len() is smaller than n  which is a u32 (not equal to 0xFFFF)
+        Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughFreeBlocks(n, unsafe {
+            free_blocks.len().try_into().unwrap_unchecked()
+        }))))
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +208,7 @@ mod test {
 
     use super::inode::ROOT_DIRECTORY_INODE;
     use super::Ext2;
+    use crate::dev::celled::Celled;
     use crate::file::Type;
 
     #[test]
@@ -202,7 +223,8 @@ mod test {
     fn free_blocks() {
         let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
         let ext2 = Ext2::new(device, 0).unwrap();
-        let free_blocks = ext2.free_blocks(1_024).unwrap();
+        let fs = Celled::new(ext2);
+        let free_blocks = fs.free_blocks(1_024).unwrap();
 
         assert!(free_blocks.iter().all_unique());
     }

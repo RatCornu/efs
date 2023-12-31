@@ -31,6 +31,7 @@
     clippy::panic,
     clippy::panic_in_result_fn,
     clippy::pattern_type_mismatch,
+    clippy::pub_with_shorthand,
     clippy::question_mark_used,
     clippy::separated_literal_suffix,
     clippy::shadow_reuse,
@@ -60,6 +61,9 @@
 #![feature(doc_cfg)]
 #![feature(doc_auto_cfg)]
 #![feature(error_in_core)]
+#![feature(exact_size_is_empty)]
+#![feature(let_chains)]
+#![feature(never_type)]
 #![feature(step_trait)]
 
 extern crate alloc;
@@ -71,5 +75,6 @@ pub mod dev;
 pub mod error;
 pub mod file;
 pub mod fs;
+pub mod io;
 pub mod path;
 pub mod types;

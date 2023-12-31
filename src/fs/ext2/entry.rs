@@ -1,6 +1,6 @@
 //! Interface with ext2's directories.
 //!
-//! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Directories) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html#directory) for more informations.
+//! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Directories) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html#directory) for more information.
 
 use alloc::boxed::Box;
 use alloc::ffi::CString;

@@ -26,10 +26,7 @@ pub mod ext2;
 pub const PATH_MAX: usize = 4_096;
 
 /// A filesystem.
-pub trait FileSystem<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>> {
-    /// Error type associated with the filesystem.
-    type Error: core::error::Error;
-
+pub trait FileSystem<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>> {
     /// Returns the root directory of the filesystem.
     fn root(&self) -> D;
 
@@ -64,20 +61,20 @@ pub trait FileSystem<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>
         path: &Path,
         current_dir: D,
         symlink_resolution: bool,
-    ) -> Result<TypeWithFile<R, S, F, D>, Error<Self::Error>>
+    ) -> Result<TypeWithFile<E, R, S, F, D>, Error<E>>
     where
         Self: Sized,
     {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn inner_resolution<E: core::error::Error, R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>>(
-            fs: &impl FileSystem<R, S, F, D>,
+        fn inner_resolution<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>>(
+            fs: &impl FileSystem<E, R, S, F, D>,
             path: &Path,
             mut current_dir: D,
             symlink_resolution: bool,
             mut visited_symlinks: Vec<String>,
-        ) -> Result<TypeWithFile<R, S, F, D>, Error<E>> {
+        ) -> Result<TypeWithFile<E, R, S, F, D>, Error<E>> {
             let canonical_path = path.canonical();
 
             if canonical_path.len() > PATH_MAX {
@@ -107,10 +104,10 @@ pub trait FileSystem<R: Regular, S: SymbolicLink, F: File, D: Directory<R, S, F>
                     },
                     Component::CurDir => {},
                     Component::ParentDir => {
-                        current_dir = current_dir.parent();
+                        current_dir = current_dir.parent()?;
                     },
                     Component::Normal(filename) => {
-                        let children = current_dir.entries();
+                        let children = current_dir.entries()?;
                         let Some(entry) = children.into_iter().find(|entry| entry.filename == filename).map(|entry| entry.file)
                         else {
                             return Err(Error::Fs(FsError::NotFound(filename.to_string())));

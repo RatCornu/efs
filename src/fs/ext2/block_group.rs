@@ -1,6 +1,6 @@
 //! Interface with ext2's block group descriptors and block group descriptor table.
 //!
-//! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Block_Group_Descriptor_Table) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html) for more informations.
+//! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Block_Group_Descriptor_Table) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html) for more information.
 
 use core::cell::RefCell;
 

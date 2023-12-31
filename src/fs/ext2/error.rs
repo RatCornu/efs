@@ -21,6 +21,12 @@ pub enum Ext2Error {
     /// A ill-formed C-string has been found during a name parsing.
     BadString,
 
+    /// Tried to set as free a block already free.
+    BlockAlreadyFree(u32),
+
+    /// Tried to set as used a block already in use.
+    BlockAlreadyInUse(u32),
+
     /// Given code does not correspond to a valid file system state.
     ///
     /// See [this table](https://wiki.osdev.org/Ext2#File_System_States) for reference.
@@ -51,6 +57,9 @@ pub enum Ext2Error {
     /// Requested more free blocks than currently available.
     NotEnoughFreeBlocks(u32, u32),
 
+    /// Tried to access a byte which is out of bounds.
+    OutOfBounds(i128),
+
     /// Tried to assign a wrong type to a file.
     WrongFileType(Type, Type),
 }
@@ -64,6 +73,12 @@ impl Display for Ext2Error {
             },
             Self::BadMagic(magic) => write!(formatter, "Bad Magic: {magic} has been found while {EXT2_SIGNATURE} was expected"),
             Self::BadString => write!(formatter, "Bad String: a ill-formed C-string has been found"),
+            Self::BlockAlreadyFree(nth) => {
+                write!(formatter, "Block Already Free: tried to set the {nth} block free while already being free")
+            },
+            Self::BlockAlreadyInUse(nth) => {
+                write!(formatter, "Block Already in Use: tried to set the {nth} block in use while already being used")
+            },
             Self::InvalidState(state) => write!(formatter, "Invalid State: {state} has been found while 1 or 2 was expected"),
             Self::InvalidErrorHandlingMethod(method) => {
                 write!(formatter, "Invalid Error Handling Method: {method} was found while 1, 2 or 3 was expected")
@@ -87,6 +102,9 @@ impl Display for Ext2Error {
             Self::NotEnoughFreeBlocks(requested, available) => {
                 write!(formatter, "Not Enough Free Blocks: requested {requested} free blocks while only {available} are available")
             },
+            Self::OutOfBounds(byte) => {
+                write!(formatter, "Out of Bounds: tried to access the {byte}th byte which is out of bounds")
+            },
             Self::WrongFileType(expected, given) => {
                 write!(formatter, "Wrong File Type: {expected:?} file type expected, {given:?} given")
             },
@@ -95,25 +113,3 @@ impl Display for Ext2Error {
 }
 
 impl error::Error for Ext2Error {}
-
-impl Ext2Error {
-    /// Converts an [`Ext2Error`] into a `static str` in constant time.
-    #[inline]
-    #[must_use]
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::BadFileType(_) => "Bad File Type",
-            Self::BadMagic(_) => "Bad Magic",
-            Self::BadString => "Bad String",
-            Self::InvalidState(_) => "Invalid State",
-            Self::InvalidErrorHandlingMethod(_) => "Invalid Error Hanling Method",
-            Self::InvalidCompressionAlgorithm(_) => "Invalid Compression Algorithm",
-            Self::NoExtendedFields => "No Extended Fields",
-            Self::NonExistingBlockGroup(_) => "Non Existing Block Group",
-            Self::NonExistingBlock(_) => "Non Existing Block",
-            Self::NonExistingInode(_) => "Non Existing Inode",
-            Self::NotEnoughFreeBlocks(_, _) => "Not Enough Free Blocks",
-            Self::WrongFileType(_, _) => "Wrong File Type",
-        }
-    }
-}

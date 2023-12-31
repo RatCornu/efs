@@ -116,11 +116,40 @@ pub struct Base {
     pub def_resgid: u16,
 }
 
+impl PartialEq for Base {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.inodes_count == other.inodes_count
+            && self.blocks_count == other.blocks_count
+            && self.r_blocks_count == other.r_blocks_count
+            && self.free_blocks_count == other.free_blocks_count
+            && self.free_inodes_count == other.free_inodes_count
+            && self.first_data_block == other.first_data_block
+            && self.log_block_size == other.log_block_size
+            && self.log_frag_size == other.log_frag_size
+            && self.blocks_per_group == other.blocks_per_group
+            && self.frags_per_group == other.frags_per_group
+            && self.inodes_per_group == other.inodes_per_group
+            && self.max_mnt_count == other.max_mnt_count
+            && self.magic == other.magic
+            && self.state == other.state
+            && self.errors == other.errors
+            && self.minor_rev_level == other.minor_rev_level
+            && self.checkinterval == other.checkinterval
+            && self.creator_os == other.creator_os
+            && self.rev_level == other.rev_level
+            && self.def_resuid == other.def_resuid
+            && self.def_resgid == other.def_resgid
+    }
+}
+
+impl Eq for Base {}
+
 /// File System States.
 ///
 /// See the [OSdev wiki](https://wiki.osdev.org/Ext2#File_System_States) for more information.
 #[repr(u16)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     /// File system is clean.
     Clean = 0x0001,
@@ -165,7 +194,7 @@ impl From<State> for u16 {
 ///
 /// See the [OSdev wiki](https://wiki.osdev.org/Ext2#Error_Handling_Methods) for more information.
 #[repr(u16)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorHandlingMethod {
     /// Ignore the error (continue on).
     Ignore = 0x0001,
@@ -215,7 +244,7 @@ impl From<ErrorHandlingMethod> for u16 {
 ///
 /// See the [OSdev wiki](https://wiki.osdev.org/Ext2#Creator_Operating_System_IDs) for more information.
 #[repr(u32)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingSystem {
     /// [Linux](https://kernel.org/)
     Linux = 0x0000_0000,
@@ -326,6 +355,18 @@ impl Base {
     pub const fn creator_operating_system(&self) -> OperatingSystem {
         OperatingSystem::from_bytes(self.creator_os)
     }
+
+    /// Returns the maximal size in bytes for a single file.
+    #[inline]
+    #[must_use]
+    pub const fn max_file_size(&self) -> u64 {
+        let block_size = self.block_size() as u64;
+        let direct_blocks_size = 12 * block_size;
+        let simply_indirect_blocks_size = block_size * (block_size / 4);
+        let doubly_indirect_blocks_size = block_size * (block_size / 4) * (block_size / 4);
+        let triply_indirect_blocks_size = block_size * (block_size / 4) * (block_size / 4) * (block_size / 4);
+        direct_blocks_size + simply_indirect_blocks_size + doubly_indirect_blocks_size + triply_indirect_blocks_size
+    }
 }
 
 /// Extended Superblock Fields of the [`Base`].
@@ -403,6 +444,35 @@ pub struct ExtendedFields {
     /// Block group ID of the first meta block group
     pub first_meta_bg: u32,
 }
+
+impl PartialEq for ExtendedFields {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let self_hash_seed = self.hash_seed;
+        let other_hash_seed = other.hash_seed;
+        self.first_ino == other.first_ino
+            && self.inode_size == other.inode_size
+            && self.block_group_nr == other.block_group_nr
+            && self.feature_compat == other.feature_compat
+            && self.feature_incompat == other.feature_incompat
+            && self.feature_ro_compat == other.feature_ro_compat
+            && self.uuid == other.uuid
+            && self.volume_name == other.volume_name
+            && self.algo_bitmap == other.algo_bitmap
+            && self.prealloc_blocks == other.prealloc_blocks
+            && self.prealloc_dir_blocks == other.prealloc_dir_blocks
+            && self.journal_uuid == other.journal_uuid
+            && self.journal_inum == other.journal_inum
+            && self.journal_dev == other.journal_dev
+            && self.last_orphan == other.last_orphan
+            && self_hash_seed == other_hash_seed
+            && self.def_hash_version == other.def_hash_version
+            && self.default_mount_options == other.default_mount_options
+            && self.first_meta_bg == other.first_meta_bg
+    }
+}
+
+impl Eq for ExtendedFields {}
 
 bitflags! {
     /// These are optional features for an implementation to support, but offer performance or reliability gains to
@@ -540,7 +610,7 @@ impl ExtendedFields {
 }
 
 /// Superblock of the Ext2 filesystem.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Superblock {
     /// Basic superblock (with a [`major version`](struct.Base.html#structfield.rev_level) lower than 1)
     Basic(Base),
@@ -590,6 +660,16 @@ impl Superblock {
     #[inline]
     #[must_use]
     pub const fn base(&self) -> &Base {
+        match self {
+            Self::Basic(base) => base,
+            Self::Extended(base, _) => base,
+        }
+    }
+
+    /// Returns the mutable base fields of the superblock.
+    #[inline]
+    #[must_use]
+    pub(super) const fn base_mut(&mut self) -> &mut Base {
         match self {
             Self::Basic(base) => base,
             Self::Extended(base, _) => base,
@@ -674,6 +754,13 @@ impl Superblock {
             Self::Basic(_) => 128,
             Self::Extended(_, extended_fields) => extended_fields.inode_size,
         }
+    }
+
+    /// Returns the maximal size in bytes for a single file.
+    #[inline]
+    #[must_use]
+    pub const fn max_file_size(&self) -> u64 {
+        self.base().max_file_size()
     }
 
     /// Returns the [`OptionalFeatures`] described in thoses extended fields.
