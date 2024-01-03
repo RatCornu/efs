@@ -109,6 +109,33 @@ pub struct Inode {
     pub osd2: [u8; 12],
 }
 
+impl PartialEq for Inode {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let self_direct_block_pointers = self.direct_block_pointers;
+        let other_direct_block_pointers = other.direct_block_pointers;
+        self.mode == other.mode
+            && self.uid == other.uid
+            && self.size == other.size
+            && self.gid == other.gid
+            && self.links_count == other.links_count
+            && self.blocks == other.blocks
+            && self.flags == other.flags
+            && self.osd1 == other.osd1
+            && self_direct_block_pointers == other_direct_block_pointers
+            && self.singly_indirect_block_pointer == other.singly_indirect_block_pointer
+            && self.doubly_indirect_block_pointer == other.doubly_indirect_block_pointer
+            && self.triply_indirect_block_pointer == other.triply_indirect_block_pointer
+            && self.generation == other.generation
+            && self.file_acl == other.file_acl
+            && self.dir_acl == other.dir_acl
+            && self.faddr == other.faddr
+            && self.osd2 == other.osd2
+    }
+}
+
+impl Eq for Inode {}
+
 bitflags! {
     /// Indicators of the inode type and permissions.
     ///
@@ -703,6 +730,8 @@ mod test {
     use core::mem::size_of;
     use std::fs::File;
 
+    use crate::dev::Device;
+    use crate::fs::ext2::error::Ext2Error;
     use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
     use crate::fs::ext2::superblock::Superblock;
     use crate::fs::ext2::Celled;
@@ -736,5 +765,21 @@ mod test {
         let celled_file = Celled::new(file);
         let superblock = Superblock::parse(&celled_file).unwrap();
         assert!(Inode::parse(&celled_file, &superblock, superblock.base().inodes_count + 1).is_err());
+    }
+
+    #[test]
+    fn starting_addr() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let celled_file = Celled::new(file);
+        let superblock = Superblock::parse(&celled_file).unwrap();
+
+        let root_auto = Inode::parse(&celled_file, &superblock, ROOT_DIRECTORY_INODE).unwrap();
+
+        let starting_addr = Inode::starting_addr(&celled_file, &superblock, ROOT_DIRECTORY_INODE).unwrap();
+
+        let root_manual =
+            unsafe { <RefCell<File> as Device<u8, Ext2Error>>::read_at::<Inode>(&celled_file.borrow(), starting_addr).unwrap() };
+
+        assert_eq!(root_auto, root_manual);
     }
 }

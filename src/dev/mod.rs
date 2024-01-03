@@ -404,7 +404,7 @@ mod test {
     impl core::error::Error for Error {}
 
     #[test]
-    fn device_generic() {
+    fn device_generic_read() {
         let mut device = vec![0_usize; 1024];
         let mut slice = Device::<usize, std::io::Error>::slice(
             &device,
@@ -424,7 +424,7 @@ mod test {
 
     #[allow(clippy::missing_asserts_for_indexing)]
     #[test]
-    fn device_file() {
+    fn device_file_write() {
         fs::copy("./tests/dev/device_file_1.txt", "./tests/dev/device_file_1_copy.txt").unwrap();
 
         let mut file_1 = RefCell::new(
@@ -458,7 +458,7 @@ mod test {
     }
 
     #[test]
-    fn device_read() {
+    fn device_generic_read_at() {
         const OFFSET: usize = 123;
 
         #[repr(C)]
@@ -496,7 +496,7 @@ mod test {
     }
 
     #[test]
-    fn device_write() {
+    fn device_generic_write_at() {
         const OFFSET: u64 = 123;
 
         #[repr(C)]
@@ -527,6 +527,6 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(test_bytes, slice.get(..).unwrap());
+        assert_eq!(test_bytes, slice.as_ref());
     }
 }

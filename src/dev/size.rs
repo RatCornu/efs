@@ -4,7 +4,9 @@ use core::cmp::Ordering;
 
 use super::sector::Address;
 
-/// Caracterize the size of a device
+/// Caracterize the size of a device.
+///
+/// For a device, it is the lowest non-accessible address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Size(pub Address);
 

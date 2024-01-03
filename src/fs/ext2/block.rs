@@ -211,7 +211,7 @@ impl<Dev: Device<u8, Ext2Error>> Write<Ext2Error> for Block<Dev> {
         let mut device = fs.device.borrow_mut();
 
         let length = ((fs.superblock().block_size() - self.io_offset) as usize).min(buf.len());
-        let starting_addr = Address::new((self.number * fs.superblock().block_size()) as usize);
+        let starting_addr = Address::new((self.number * fs.superblock().block_size() + self.io_offset) as usize);
         let mut slice = device.slice(starting_addr..starting_addr + length)?;
         slice.clone_from_slice(buf);
         let commit = slice.commit();
@@ -256,5 +256,75 @@ impl<Dev: Device<u8, Ext2Error>> Seek<Ext2Error> for Block<Dev> {
         } else {
             Ok(previous_offset.into())
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use alloc::vec;
+    use core::cell::RefCell;
+    use std::fs::{self, File};
+
+    use crate::dev::celled::Celled;
+    use crate::dev::sector::Address;
+    use crate::dev::Device;
+    use crate::fs::ext2::block::Block;
+    use crate::fs::ext2::error::Ext2Error;
+    use crate::fs::ext2::superblock::Superblock;
+    use crate::fs::ext2::Ext2;
+    use crate::io::{Read, Seek, SeekFrom, Write};
+
+    #[test]
+    fn block_read() {
+        const BLOCK_NUMBER: u32 = 9;
+
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/io_operations.ext2").unwrap());
+        let celled_file = Celled::new(file);
+        let superblock = Superblock::parse(&celled_file).unwrap();
+
+        let block_starting_addr = Address::new((BLOCK_NUMBER * superblock.block_size()).try_into().unwrap());
+        let slice = <RefCell<File> as Device<u8, Ext2Error>>::slice(
+            &celled_file.borrow(),
+            block_starting_addr + 123..block_starting_addr + 123 + 59,
+        )
+        .unwrap()
+        .commit();
+
+        let ext2 = Celled::new(Ext2::new_celled(celled_file, 0).unwrap());
+        let mut block = Block::new(ext2, BLOCK_NUMBER);
+        block.seek(SeekFrom::Start(123)).unwrap();
+        let mut buffer_auto = [0_u8; 59];
+        block.read(&mut buffer_auto).unwrap();
+
+        assert_eq!(buffer_auto, slice.as_ref());
+    }
+
+    #[test]
+    fn block_write() {
+        const BLOCK_NUMBER: u32 = 9;
+
+        fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_block_write.ext2").unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_block_write.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let fs = ext2.borrow();
+
+        let mut block = Block::new(ext2.clone(), BLOCK_NUMBER);
+        let mut buffer = vec![0_u8; usize::try_from(fs.superblock().block_size()).unwrap() - 123];
+        buffer[..59].copy_from_slice(&[1_u8; 59]);
+        block.seek(SeekFrom::Start(123)).unwrap();
+        block.write(&buffer).unwrap();
+
+        let mut start = vec![0_u8; 123];
+        start.append(&mut buffer);
+        assert_eq!(block.read_all().unwrap(), start);
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_block_write.ext2").unwrap();
     }
 }

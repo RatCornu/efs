@@ -3,6 +3,7 @@
 //! See the [OSdev wiki](https://wiki.osdev.org/Ext2#Directories) and the [*The Second Extended Filesystem* book](https://www.nongnu.org/ext2-doc/ext2.html#directory) for more information.
 
 use alloc::ffi::CString;
+use alloc::string::String;
 use core::fmt::Debug;
 use core::mem::size_of;
 
@@ -75,14 +76,20 @@ impl Entry {
 
         let subfields = device.read_at::<Subfields>(starting_addr)?;
         let buffer = device.read_at::<[u8; 256]>(starting_addr + size_of::<Subfields>())?;
-        let name = CString::from_vec_with_nul(buffer.get_unchecked(..=subfields.name_len as usize).to_vec())
+
+        // As after an inode has been removed then added with a different name the previous name is not rewritten entirely, it is
+        // needed to add manually the `<NUL>` at the end of the vector.
+        let mut name = String::from_utf8(buffer.get_unchecked(..subfields.name_len as usize).to_vec())
             .map_err(|_err| Error::Fs(FsError::Implementation(Ext2Error::BadString)))?;
+        name.push('\0');
+        let c_name =
+            CString::from_vec_with_nul(name.into()).map_err(|_err| Error::Fs(FsError::Implementation(Ext2Error::BadString)))?;
         Ok(Self {
             inode: subfields.inode,
             rec_len: subfields.rec_len,
             name_len: subfields.name_len,
             file_type: subfields.file_type,
-            name,
+            name: c_name,
         })
     }
 }

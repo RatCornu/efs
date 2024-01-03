@@ -87,13 +87,18 @@ impl<D: Device<u8, Ext2Error>> File<D> {
     ///
     /// Must ensure that the given inode is coherent with the current state of the filesystem.
     unsafe fn set_inode(&mut self, inode: &Inode) -> Result<(), Error<Ext2Error>> {
-        self.update_inner_inode()?;
-
         let fs = self.filesystem.borrow();
         let celled_device = fs.device.clone();
-        let mut device = fs.device.borrow_mut();
 
-        device.write_at(Inode::starting_addr(&celled_device, fs.superblock(), self.inode_number)?, inode)?;
+        let starting_addr = Inode::starting_addr(&celled_device, fs.superblock(), self.inode_number)?;
+
+        let mut device = fs.device.borrow_mut();
+        device.write_at(starting_addr, *inode)?;
+
+        drop(device);
+        drop(fs);
+
+        self.update_inner_inode()?;
 
         Ok(())
     }
@@ -191,7 +196,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             indirect_block.write(buffer).map(|_| ())
         }
 
-        /// TODO
+        /// Write a data block given with its state, starting the buffer `buf` at the given offset `offset`.
         fn write_data_block<D: Device<u8, Ext2Error>>(
             filesystem: &Celled<Ext2<D>>,
             block_with_state: BlockWithState,
@@ -205,26 +210,28 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             // SAFETY: `block_size` is lower than `usize::MAX` when `usize` is at least `u16`
             let block_size_usize = unsafe { usize::try_from(fs.superblock().block_size()).unwrap_unchecked() };
 
-            if *offset >= block_size && *offset % block_size == 0 {
+            if *offset >= block_size {
                 offset.sub_assign(block_size);
             } else if *offset > 0 {
-                let bytes_to_end_block = *offset % block_size;
                 let mut block = Block::new(filesystem.clone(), block_with_state.block);
 
-                // SAFETY: `bytes_to_end_block < block_size << i64::MAX`
-                block.seek(SeekFrom::End(unsafe { bytes_to_end_block.try_into().unwrap_unchecked() }))?;
+                block.seek(SeekFrom::Start(*offset))?;
 
-                // SAFETY: `bytes_to_end_block < block_size` which is lower than `usize::MAX` when `usize` is at least `u16`
-                let bytes_to_end_block_usize = unsafe { usize::try_from(bytes_to_end_block).unwrap_unchecked() };
+                // SAFETY: `offset < block_size` which is lower than `usize::MAX` when `usize` is at least `u16`
+                let bytes_to_end_block = block_size_usize - unsafe { usize::try_from(*offset).unwrap_unchecked() };
 
                 // SAFETY: the block has been Updated so `written_bytes < `bytes_to_write`
-                block.write(unsafe { buf.get_unchecked(*written_bytes..*written_bytes + bytes_to_end_block_usize) })?;
+                block.write(unsafe {
+                    buf.get_unchecked(*written_bytes..*written_bytes + bytes_to_end_block.min(buf.len() - *written_bytes))
+                })?;
             } else {
                 if block_with_state.state == State::Updated {
                     let mut block = Block::new(filesystem.clone(), block_with_state.block);
 
                     // SAFETY: the block has been Updated so `written_bytes < `bytes_to_write`
-                    block.write(unsafe { buf.get_unchecked(*written_bytes..*written_bytes + block_size_usize) })?;
+                    block.write(unsafe {
+                        buf.get_unchecked(*written_bytes..*written_bytes + block_size_usize.min(buf.len() - *written_bytes))
+                    })?;
                 };
 
                 offset.sub_assign(block_size);
@@ -595,6 +602,8 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         // Write everything that has to change.
 
+        drop(fs);
+
         let mut offset = self.io_offset;
         let mut written_bytes = 0_usize;
 
@@ -678,8 +687,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             }
         }
 
-        drop(fs);
-
         let mut updated_inode = self.inode;
 
         let mut direct_block_pointers = direct_block_pointers
@@ -703,7 +710,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         assert!(u32::try_from(new_size).is_ok(), "Search how to deal with bigger files");
 
-        // SAFETY: the updated inode contains the
+        // SAFETY: the updated inode contains the right inode created in this function
         unsafe { self.set_inode(&updated_inode) }?;
 
         free_block_copied.try_for_each(|block| Block::new(self.filesystem.clone(), block).set_used())?;
@@ -713,11 +720,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
     #[inline]
     fn flush(&mut self) -> Result<(), Error<Ext2Error>> {
-        self.update_inner_inode()?;
-
-        let mut filesystem = self.filesystem.borrow_mut();
-        filesystem.update_inner_superblock()?;
-
         Ok(())
     }
 }
@@ -767,6 +769,33 @@ impl<D: Device<u8, Ext2Error>> Regular<D> {
         Ok(Self {
             file: File::new(&filesystem.clone(), inode_number)?,
         })
+    }
+
+    /// Reads all the content of the file and returns it in a byte vector.
+    ///
+    /// Does not move the offset for I/O operations used by [`Seek`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Inode::read_data`].
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the total size of the device cannot be loaded in RAM.
+    #[inline]
+    pub fn read_all(&mut self) -> Result<Vec<u8>, Error<Ext2Error>> {
+        let mut buffer = vec![
+            0_u8;
+            self.file
+                .inode
+                .data_size()
+                .try_into()
+                .expect("The size of the file's content is greater than the size representable on this computer.")
+        ];
+        let previous_offset = self.seek(SeekFrom::Start(0))?;
+        self.read(&mut buffer)?;
+        self.seek(SeekFrom::Start(previous_offset))?;
+        Ok(buffer)
     }
 }
 
@@ -920,16 +949,19 @@ mod test {
     use alloc::vec;
     use alloc::vec::Vec;
     use core::cell::RefCell;
-    use std::fs::File;
+    use std::fs::{self, File};
 
     use itertools::Itertools;
 
     use crate::dev::sector::Address;
+    use crate::file::TypeWithFile;
     use crate::fs::ext2::directory::Entry;
     use crate::fs::ext2::file::Directory;
     use crate::fs::ext2::inode::{Inode, ROOT_DIRECTORY_INODE};
     use crate::fs::ext2::superblock::Superblock;
     use crate::fs::ext2::{Celled, Ext2};
+    use crate::io::{Seek, SeekFrom, Write};
+    use crate::path::UnixStr;
 
     #[test]
     fn parse_root() {
@@ -1024,5 +1056,116 @@ mod test {
         let mut buffer = [0_u8; 1_024];
         big_file_inode.read_data(&fs.device, fs.superblock(), &mut buffer, 0x0010_0000).unwrap();
         assert_eq!(buffer.iter().all_equal_value(), Ok(&0));
+    }
+
+    #[test]
+    fn read_file() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/io_operations.ext2").unwrap());
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(foo.read_all().unwrap(), b"Hello world!\n");
+    }
+
+    #[test]
+    fn set_inode() {
+        fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_set_inode.ext2").unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_set_inode.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        else {
+            panic!()
+        };
+
+        let mut new_inode = foo.file.inode;
+        new_inode.uid = 0x1234;
+        new_inode.gid = 0x2345;
+        new_inode.flags = 0xabcd;
+        unsafe { foo.file.set_inode(&new_inode) }.unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+        assert_eq!(foo.file.inode, new_inode);
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_set_inode.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_dbp_replace_without_allocation() {
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_dbp_replace_without_allocation.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_dbp_replace_without_allocation.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        else {
+            panic!()
+        };
+
+        foo.seek(SeekFrom::Start(6)).unwrap();
+        let replace_text = b"earth";
+        foo.write(replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(String::from_utf8(foo.read_all().unwrap()).unwrap(), "Hello earth!\n");
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_dbp_replace_without_allocation.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_dbp_extend_without_allocation() {
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_without_allocation.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_without_allocation.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        else {
+            panic!()
+        };
+
+        foo.seek(SeekFrom::Start(6)).unwrap();
+        let replace_text = b"earth!\nI love dogs!\n";
+        foo.write(replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(foo.read_all().unwrap(), b"Hello earth!\nI love dogs!\n");
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_without_allocation.ext2").unwrap();
     }
 }

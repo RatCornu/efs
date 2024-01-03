@@ -61,6 +61,21 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
         })
     }
 
+    /// Creates a new [`Ext2`] object from the given celled device that should contain an ext2 filesystem and a given device ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the device could not be read of if no ext2 filesystem is found on this device.
+    #[inline]
+    pub fn new_celled(celled_device: Celled<Dev>, device_id: u32) -> Result<Self, Error<Ext2Error>> {
+        let superblock = Superblock::parse(&celled_device)?;
+        Ok(Self {
+            device_id,
+            device: celled_device,
+            superblock,
+        })
+    }
+
     /// Returns the [`Superblock`] of this filesystem.
     #[inline]
     #[must_use]
@@ -139,7 +154,7 @@ impl<Dev: Device<u8, Ext2Error>> Celled<Ext2<Dev>> {
     pub fn file(&self, inode_number: u32) -> Result<Ext2TypeWithFile<Dev>, Error<Ext2Error>> {
         let filesystem = self.borrow();
         let inode = filesystem.inode(inode_number)?;
-        match inode.file_type().map_err(|err| Error::Fs(FsError::Implementation(err)))? {
+        match inode.file_type()? {
             Type::Regular => Ok(TypeWithFile::Regular(Regular::new(&self.clone(), inode_number)?)),
             Type::Directory => Ok(TypeWithFile::Directory(Directory::new(&self.clone(), inode_number)?)),
             Type::SymbolicLink => Ok(TypeWithFile::SymbolicLink(SymbolicLink::new(&self.clone(), inode_number)?)),
@@ -209,7 +224,9 @@ mod test {
     use super::inode::ROOT_DIRECTORY_INODE;
     use super::Ext2;
     use crate::dev::celled::Celled;
-    use crate::file::Type;
+    use crate::file::{Directory, Type, TypeWithFile};
+    use crate::io::Read;
+    use crate::path::UnixStr;
 
     #[test]
     fn base_fs() {
@@ -217,6 +234,19 @@ mod test {
         let ext2 = Ext2::new(device, 0).unwrap();
         let root = ext2.inode(ROOT_DIRECTORY_INODE).unwrap();
         assert_eq!(root.file_type().unwrap(), Type::Directory);
+    }
+
+    #[test]
+    fn fetch_file() {
+        let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let ext2 = Celled::new(Ext2::new(device, 0).unwrap());
+
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut big_file)) = root.entry(UnixStr::new("big_file").unwrap()).unwrap() else { panic!() };
+
+        let mut buf = [0_u8; 1024];
+        big_file.read(&mut buf).unwrap();
+        assert_eq!(buf.into_iter().all_equal_value(), Ok(1));
     }
 
     #[test]
