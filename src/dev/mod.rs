@@ -325,7 +325,7 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
-#[cfg(not(no_std))]
+#[cfg(feature = "std")]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     #[inline]
     fn size(&self) -> Size {

@@ -20,10 +20,11 @@ pub trait Read<E: core::error::Error> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>>;
 }
 
-impl<E: core::error::Error, S: Read<E>> Read<E> for &mut S {
+#[cfg(feature = "std")]
+impl<E: core::error::Error, S: std::io::Read> Read<E> for S {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>> {
-        (**self).read(buf)
+        std::io::Read::read(self, buf).map_err(|err| Error::IO(err))
     }
 }
 
@@ -54,15 +55,16 @@ pub trait Write<E: core::error::Error> {
     fn flush(&mut self) -> Result<(), Error<E>>;
 }
 
-impl<E: core::error::Error, S: Write<E>> Write<E> for &mut S {
+#[cfg(feature = "std")]
+impl<E: core::error::Error, S: std::io::Write> Write<E> for S {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<E>> {
-        (**self).write(buf)
+        std::io::Write::write(self, buf).map_err(|err| Error::IO(err))
     }
 
     #[inline]
     fn flush(&mut self) -> Result<(), Error<E>> {
-        (**self).flush()
+        std::io::Write::flush(self).map_err(|err| Error::IO(err))
     }
 }
 
@@ -85,6 +87,30 @@ pub enum SeekFrom {
     Current(i64),
 }
 
+#[cfg(feature = "std")]
+impl From<std::io::SeekFrom> for SeekFrom {
+    #[inline]
+    fn from(value: std::io::SeekFrom) -> Self {
+        match value {
+            std::io::SeekFrom::Start(value) => Self::Start(value),
+            std::io::SeekFrom::End(value) => Self::End(value),
+            std::io::SeekFrom::Current(value) => Self::Current(value),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<SeekFrom> for std::io::SeekFrom {
+    #[inline]
+    fn from(value: SeekFrom) -> Self {
+        match value {
+            SeekFrom::Start(value) => Self::Start(value),
+            SeekFrom::End(value) => Self::End(value),
+            SeekFrom::Current(value) => Self::Current(value),
+        }
+    }
+}
+
 /// Provides a cursor which can be moved within a stream of bytes.
 ///
 /// See [`std::io::Seek`] for more information: this trait is a `no_std` based variant.
@@ -99,9 +125,10 @@ pub trait Seek<E: core::error::Error> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>>;
 }
 
-impl<E: core::error::Error, S: Seek<E>> Seek<E> for &mut S {
+#[cfg(feature = "std")]
+impl<E: core::error::Error, S: std::io::Seek> Seek<E> for S {
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>> {
-        (**self).seek(pos)
+        std::io::Seek::seek(self, pos.into()).map_err(|err| Error::IO(err))
     }
 }
