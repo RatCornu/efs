@@ -182,7 +182,7 @@ struct BlockWithState {
 impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
     #[inline]
     #[allow(clippy::too_many_lines)]
-    #[allow(clippy::cognitive_complexity)]
+    #[allow(clippy::cognitive_complexity)] // TODO: make this understandable for a human
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
         /// Writes the given `blocks` number in the indirect block with the number `block_number`.
         fn write_indirect_block<D: Device<u8, Ext2Error>>(
@@ -325,7 +325,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         let mut total_blocks_to_request = data_blocks_to_request;
         let mut remaining_data_blocks = data_blocks_to_request;
-        remaining_data_blocks = remaining_data_blocks.saturating_sub(12);
+        remaining_data_blocks = remaining_data_blocks.saturating_sub(12 - direct_block_pointers.len() as u64);
 
         let mut total_simply_indirect_blocks = 0_usize;
         let mut total_doubly_indirect_blocks = 0_usize;
@@ -365,19 +365,20 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             // SAFETY: `max_data_blocks_per_simple_indirection << u32::MAX`
             total_doubly_indirect_blocks = unsafe {
                 usize::try_from(
-                    (remaining_data_blocks / max_data_blocks_per_simple_indirection
-                        + Into::<u64>::into(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0))
+                    ((remaining_data_blocks / max_data_blocks_per_simple_indirection)
+                        + u64::from(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0))
                     .min(max_data_blocks_per_simple_indirection),
                 )
                 .unwrap_unchecked()
             };
-            let singly_indirect_blocks_to_request = (remaining_data_blocks / max_data_blocks_per_simple_indirection
-                + Into::<u64>::into(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0))
+            let singly_indirect_blocks_to_request = ((remaining_data_blocks / max_data_blocks_per_simple_indirection)
+                + u64::from(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0))
             .min(max_data_blocks_per_simple_indirection)
             .saturating_sub(doubly_indirect_blocks.len() as u64);
 
             total_blocks_to_request += singly_indirect_blocks_to_request;
-            remaining_data_blocks -= max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request;
+            remaining_data_blocks =
+                remaining_data_blocks.saturating_sub(max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request);
         }
 
         // Triple indirection
@@ -394,18 +395,20 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                         },
                     );
 
-                    let singly_indirect_blocks_to_request = (remaining_data_blocks / max_data_blocks_per_simple_indirection)
-                        .min(max_data_blocks_per_simple_indirection)
-                        .saturating_sub(doubly_indirect_blocks.len() as u64);
+                    let singly_indirect_blocks_to_request = ((remaining_data_blocks / max_data_blocks_per_simple_indirection)
+                        + u64::from(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0))
+                    .min(max_data_blocks_per_simple_indirection)
+                    .saturating_sub(doubly_indirect_blocks.len() as u64);
 
                     total_blocks_to_request += singly_indirect_blocks_to_request;
-                    remaining_data_blocks -= max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request;
+                    remaining_data_blocks = remaining_data_blocks
+                        .saturating_sub(max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request);
                 },
             }
 
             total_triply_indirect_blocks =
                 // SAFETY: `max_data_blocks_per_simple_indirection << u32::MAX`
-                unsafe { usize::try_from(remaining_data_blocks / max_data_blocks_per_double_indirection).unwrap_unchecked() };
+                unsafe { usize::try_from((remaining_data_blocks / max_data_blocks_per_double_indirection) + u64::from(remaining_data_blocks % max_data_blocks_per_double_indirection != 0)).unwrap_unchecked() };
             let full_doubly_indirect_blocks_to_request = (remaining_data_blocks / max_data_blocks_per_double_indirection)
                 .saturating_sub(triply_indirect_blocks.len() as u64);
 
@@ -414,18 +417,17 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
             // `remaining_data_blocks` modulo `max_data_blocks_per_double_indirection` didn't change in the last assignment
             if remaining_data_blocks % max_data_blocks_per_double_indirection != 0 {
-                total_triply_indirect_blocks += 1;
                 total_blocks_to_request += 1;
 
                 let singly_indirect_blocks_to_request = remaining_data_blocks / max_data_blocks_per_simple_indirection
-                    + Into::<u64>::into(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0);
-
+                    + u64::from(remaining_data_blocks % max_data_blocks_per_simple_indirection != 0);
                 total_blocks_to_request += singly_indirect_blocks_to_request;
-                remaining_data_blocks -= max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request;
+
+                #[allow(unused_assignments)] // Useful to keep for debugging, `remaining_data_blocks` should be equal to `0`.
+                remaining_data_blocks = remaining_data_blocks
+                    .saturating_sub(max_data_blocks_per_simple_indirection * singly_indirect_blocks_to_request);
             }
         }
-
-        assert_eq!(remaining_data_blocks, 0, "Error in the count of the data blocks (it is fucking my brain)");
 
         // Add the free blocks where it's necessary.
         let free_block_numbers = &mut self
@@ -440,7 +442,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         direct_block_pointers.append(&mut free_block_numbers.take(12 - direct_block_pointers.len()).collect_vec());
 
         // Singly indirected block pointer
-        if singly_indirect_block_pointer.block != 0 && let Some(block) = free_block_numbers.next() {
+        if singly_indirect_block_pointer.block == 0 && let Some(block) = free_block_numbers.next() {
             singly_indirect_block_pointer.block = block;
             singly_indirect_block_pointer.state = State::Updated;
         }
@@ -455,7 +457,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         }
 
         // Doubly indirected block pointer
-        if doubly_indirect_block_pointer.block != 0 && let Some(block) = free_block_numbers.next() {
+        if doubly_indirect_block_pointer.block == 0 && let Some(block) = free_block_numbers.next() {
             doubly_indirect_block_pointer.block = block;
             doubly_indirect_block_pointer.state = State::Updated;
         }
@@ -487,7 +489,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         }
 
         // Triply indirected block pointer
-        if triply_indirect_block_pointer.block != 0 && let Some(block) = free_block_numbers.next() {
+        if triply_indirect_block_pointer.block == 0 && let Some(block) = free_block_numbers.next() {
             triply_indirect_block_pointer.block = block;
             triply_indirect_block_pointer.state = State::Updated;
         }
@@ -528,9 +530,10 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             let triply_indirect_block = unsafe { free_block_numbers.next().unwrap_unchecked() };
             let mut doubly_indirect_blocks = Vec::new();
 
-            while (doubly_indirect_blocks.len() as u64) < max_data_blocks_per_simple_indirection {
+            while (doubly_indirect_blocks.len() as u64) < max_data_blocks_per_simple_indirection && !free_block_numbers.is_empty() {
                 // SAFETY: `free_block_numbers` contains the exact amount of needed free blocks
                 let doubly_indirect_block = unsafe { free_block_numbers.next().unwrap_unchecked() };
+
                 doubly_indirect_blocks.push((
                     BlockWithState {
                         block: doubly_indirect_block,
@@ -552,8 +555,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                 doubly_indirect_blocks,
             ));
         }
-
-        assert_eq!(free_block_numbers.len(), 0, "Error in the count of free blocks (it is really fucking my brain)");
 
         // Write everything that has to change.
 
@@ -627,9 +628,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                 }
             }
         }
-
-        assert_eq!(written_bytes as u64, bytes_to_write, "I fucked up the write_data_block function");
-        assert_eq!(offset, 0, "I fucked up the write_data_block function");
 
         let mut updated_inode = self.inode;
 
@@ -1005,11 +1003,15 @@ mod test {
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/io_operations.ext2").unwrap());
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
 
-        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
-        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
-        else {
-            panic!()
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
         };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
+        else {
+            panic!("`foo.txt` has been created as a regular file")
+        };
+
         assert_eq!(foo.read_all().unwrap(), b"Hello world!\n");
     }
 
@@ -1025,10 +1027,13 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
-        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
-        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
         else {
-            panic!()
+            panic!("`foo.txt` has been created as a regular file")
         };
 
         let mut new_inode = foo.file.inode;
@@ -1059,10 +1064,13 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
-        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
-        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
         else {
-            panic!()
+            panic!("`foo.txt` has been created as a regular file")
         };
 
         foo.seek(SeekFrom::Start(6)).unwrap();
@@ -1093,10 +1101,13 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
-        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
-        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
         else {
-            panic!()
+            panic!("`foo.txt` has been created as a regular file")
         };
 
         foo.seek(SeekFrom::Start(6)).unwrap();
@@ -1129,10 +1140,13 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
-        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
-        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
         else {
-            panic!()
+            panic!("`foo.txt` has been created as a regular file")
         };
 
         let replace_text = &[b'a'; BYTES_TO_WRITE];
@@ -1145,5 +1159,125 @@ mod test {
         assert_eq!(foo.read_all().unwrap().into_iter().all_equal_value(), Ok(b'a'));
 
         fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_with_allocation.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_singly_indirect_block_pointer() {
+        const BYTES_TO_WRITE: usize = 23_000;
+
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_singly_indirect_block_pointer.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_singly_indirect_block_pointer.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
+        else {
+            panic!("`foo.txt` has been created as a regular file")
+        };
+
+        let mut replace_text = vec![b'a'; BYTES_TO_WRITE / 2];
+        replace_text.append(&mut vec![b'b'; BYTES_TO_WRITE / 2]);
+        foo.write(&replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(foo.read_all().unwrap().len(), BYTES_TO_WRITE);
+        assert_eq!(foo.read_all().unwrap(), replace_text);
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_singly_indirect_block_pointer.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_doubly_indirect_block_pointer() {
+        const BYTES_TO_WRITE: usize = 400_000;
+
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_doubly_indirect_block_pointer.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_doubly_indirect_block_pointer.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
+        else {
+            panic!("`foo.txt` has been created as a regular file")
+        };
+
+        let mut replace_text = vec![b'a'; BYTES_TO_WRITE / 2];
+        replace_text.append(&mut vec![b'b'; BYTES_TO_WRITE / 2]);
+        foo.write(&replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(foo.read_all().unwrap().len(), BYTES_TO_WRITE);
+        assert_eq!(foo.read_all().unwrap(), replace_text);
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_doubly_indirect_block_pointer.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_triply_indirect_block_pointer() {
+        const BYTES_TO_WRITE: usize = 70_000_000;
+
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_triply_indirect_block_pointer.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_triply_indirect_block_pointer.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else {
+            panic!("The root is always a directory.")
+        };
+        let TypeWithFile::Regular(mut foo) =
+            crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap().unwrap()
+        else {
+            panic!("`foo.txt` has been created as a regular file")
+        };
+
+        let mut replace_text = vec![b'a'; BYTES_TO_WRITE / 2];
+        replace_text.append(&mut vec![b'b'; BYTES_TO_WRITE / 2]);
+        foo.write(&replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(foo.read_all().unwrap().len(), BYTES_TO_WRITE);
+        assert_eq!(foo.read_all().unwrap(), replace_text);
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_triply_indirect_block_pointer.ext2").unwrap();
     }
 }

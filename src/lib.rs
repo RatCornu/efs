@@ -65,6 +65,7 @@
 #![feature(let_chains)]
 #![feature(never_type)]
 #![feature(step_trait)]
+#![feature(stmt_expr_attributes)]
 
 extern crate alloc;
 extern crate core;

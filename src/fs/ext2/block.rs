@@ -311,7 +311,7 @@ mod test {
 
     #[test]
     fn block_write() {
-        const BLOCK_NUMBER: u32 = 9;
+        const BLOCK_NUMBER: u32 = 10_234;
 
         fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_block_write.ext2").unwrap();
 
