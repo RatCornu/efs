@@ -21,7 +21,7 @@ pub enum Error<E: core::error::Error> {
     Path(PathError),
 
     /// Standard I/O error
-    #[cfg(feature = "std")]
+    #[cfg(not(no_std))]
     IO(std::io::Error),
 }
 
@@ -32,7 +32,7 @@ impl<E: core::error::Error> Display for Error<E> {
             Self::Device(device_error) => write!(formatter, "Device Error: {device_error}"),
             Self::Fs(fs_error) => write!(formatter, "Filesystem Error: {fs_error}"),
             Self::Path(path_error) => write!(formatter, "Path Error: {path_error}"),
-            #[cfg(feature = "std")]
+            #[cfg(not(no_std))]
             Self::IO(io_error) => write!(formatter, "I/O Error: {io_error}"),
         }
     }

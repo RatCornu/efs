@@ -35,7 +35,7 @@ pub struct File<D: Device<u8, Ext2Error>> {
     /// Inode corresponding to the file.
     inode: Inode,
 
-    /// Read/Write offset (can be manipulated with [`Seek`]).
+    /// Read/Write offset in bytes (can be manipulated with [`Seek`]).
     io_offset: u64,
 }
 
@@ -199,7 +199,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         /// Write a data block given with its state, starting the buffer `buf` at the given offset `offset`.
         fn write_data_block<D: Device<u8, Ext2Error>>(
             filesystem: &Celled<Ext2<D>>,
-            block_with_state: BlockWithState,
+            block_number: u32,
             buf: &[u8],
             offset: &mut u64,
             written_bytes: &mut usize,
@@ -213,29 +213,28 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             if *offset >= block_size {
                 offset.sub_assign(block_size);
             } else if *offset > 0 {
-                let mut block = Block::new(filesystem.clone(), block_with_state.block);
+                let mut block = Block::new(filesystem.clone(), block_number);
 
                 block.seek(SeekFrom::Start(*offset))?;
 
                 // SAFETY: `offset < block_size` which is lower than `usize::MAX` when `usize` is at least `u16`
                 let bytes_to_end_block = block_size_usize - unsafe { usize::try_from(*offset).unwrap_unchecked() };
+                let length = bytes_to_end_block.min(buf.len() - *written_bytes);
 
                 // SAFETY: the block has been Updated so `written_bytes < `bytes_to_write`
-                block.write(unsafe {
-                    buf.get_unchecked(*written_bytes..*written_bytes + bytes_to_end_block.min(buf.len() - *written_bytes))
-                })?;
+                block.write(unsafe { buf.get_unchecked(*written_bytes..*written_bytes + length) })?;
+
+                *offset = 0_u64;
+                written_bytes.add_assign(length);
             } else {
-                if block_with_state.state == State::Updated {
-                    let mut block = Block::new(filesystem.clone(), block_with_state.block);
+                let length = block_size_usize.min(buf.len() - *written_bytes);
 
-                    // SAFETY: the block has been Updated so `written_bytes < `bytes_to_write`
-                    block.write(unsafe {
-                        buf.get_unchecked(*written_bytes..*written_bytes + block_size_usize.min(buf.len() - *written_bytes))
-                    })?;
-                };
+                let mut block = Block::new(filesystem.clone(), block_number);
 
-                offset.sub_assign(block_size);
-                written_bytes.add_assign(block_size_usize);
+                // SAFETY: the block has been Updated so `written_bytes < `bytes_to_write`
+                block.write(unsafe { buf.get_unchecked(*written_bytes..*written_bytes + length) })?;
+
+                written_bytes.add_assign(length);
             }
 
             Ok(())
@@ -244,11 +243,14 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         let fs = self.filesystem.borrow_mut();
         let block_size = u64::from(fs.superblock().block_size());
 
+        if buf.len() as u64 > fs.superblock().max_file_size() {
+            return Err(Error::Fs(FsError::Implementation(Ext2Error::OutOfBounds(buf.len() as i128))));
+        }
+
         // Calcul of the number of needed data blocks
-        let bytes_to_write = (buf.len() as u64)
-            .min(self.inode.data_size() - self.io_offset)
-            .min(fs.superblock().max_file_size());
-        let blocks_needed = (bytes_to_write + self.io_offset) / block_size;
+        let bytes_to_write = buf.len() as u64;
+        let blocks_needed =
+            (bytes_to_write + self.io_offset) / block_size + u64::from((bytes_to_write + self.io_offset) % block_size != 0);
         let (
             initial_direct_block_pointers,
             (initial_singly_indirect_block_pointer, initial_singly_indirect_blocks),
@@ -260,6 +262,8 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             + initial_doubly_indirect_blocks.len()
             + initial_triply_indirect_blocks.len()) as u64;
         let data_blocks_to_request = blocks_needed.saturating_sub(current_data_block_number);
+
+        drop(fs);
 
         let mut singly_indirect_block_pointer = BlockWithState {
             block: initial_singly_indirect_block_pointer,
@@ -274,17 +278,8 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             state: State::Unmodified,
         };
 
-        let add_state = |blocks: Vec<u32>| {
-            blocks
-                .into_iter()
-                .map(|block| BlockWithState {
-                    block,
-                    state: State::Unmodified,
-                })
-                .collect_vec()
-        };
-        let mut direct_block_pointers = add_state(initial_direct_block_pointers);
-        let mut singly_indirect_blocks = add_state(initial_singly_indirect_blocks);
+        let mut direct_block_pointers = initial_direct_block_pointers;
+        let mut singly_indirect_blocks = initial_singly_indirect_blocks;
         let mut doubly_indirect_blocks = initial_doubly_indirect_blocks
             .into_iter()
             .map(|(block_pointer, blocks)| {
@@ -293,7 +288,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                         block: block_pointer,
                         state: State::Unmodified,
                     },
-                    add_state(blocks),
+                    blocks,
                 )
             })
             .collect_vec();
@@ -313,7 +308,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                                     block: block_pointer,
                                     state: State::Unmodified,
                                 },
-                                add_state(blocks),
+                                blocks,
                             )
                         })
                         .collect_vec(),
@@ -337,7 +332,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         let mut total_triply_indirect_blocks = 0_usize;
 
         // Simple indirection
-        if data_blocks_to_request > 0 {
+        if remaining_data_blocks > 0 {
             if singly_indirect_blocks.is_empty() {
                 total_blocks_to_request += 1;
             }
@@ -442,15 +437,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
         let mut free_block_copied = free_block_numbers.clone();
 
         // Direct block pointers
-        direct_block_pointers.append(
-            &mut free_block_numbers
-                .take(12 - direct_block_pointers.len())
-                .map(|block| BlockWithState {
-                    block,
-                    state: State::Updated,
-                })
-                .collect_vec(),
-        );
+        direct_block_pointers.append(&mut free_block_numbers.take(12 - direct_block_pointers.len()).collect_vec());
 
         // Singly indirected block pointer
         if singly_indirect_block_pointer.block != 0 && let Some(block) = free_block_numbers.next() {
@@ -463,10 +450,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             singly_indirect_blocks.append(
                 &mut free_block_numbers
                     .take(total_simply_indirect_blocks - singly_indirect_blocks.len())
-                    .map(|block| BlockWithState {
-                        block,
-                        state: State::Updated,
-                    })
                     .collect_vec(),
             );
         }
@@ -483,15 +466,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                 unsafe { usize::try_from(max_data_blocks_per_simple_indirection).unwrap_unchecked() } - block_with_state.1.len();
             if blocks_added > 0 {
                 block_with_state.0.state = State::Updated;
-                block_with_state.1.append(
-                    &mut free_block_numbers
-                        .take(blocks_added)
-                        .map(|block| BlockWithState {
-                            block,
-                            state: State::Updated,
-                        })
-                        .collect_vec(),
-                );
+                block_with_state.1.append(&mut free_block_numbers.take(blocks_added).collect_vec());
             }
         }
 
@@ -507,10 +482,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                     // SAFETY: `max_data_blocks_per_simple_indirection` is lower than `usize::MAX` when `usize` is at least
                     // `u16`
                     .take(unsafe { usize::try_from(max_data_blocks_per_simple_indirection).unwrap_unchecked() })
-                    .map(|block| BlockWithState {
-                        block,
-                        state: State::Updated,
-                    })
                     .collect_vec(),
             ));
         }
@@ -529,15 +500,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
                 if new_blocks > 0 {
                     doubly_indirect_block_with_state.0.state = State::Updated;
-                    simply_indirect_block.1.append(
-                        &mut free_block_numbers
-                            .take(new_blocks)
-                            .map(|block| BlockWithState {
-                                block,
-                                state: State::Updated,
-                            })
-                            .collect_vec(),
-                    );
+                    simply_indirect_block.1.append(&mut free_block_numbers.take(new_blocks).collect_vec());
                 }
             }
 
@@ -555,10 +518,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                         // SAFETY: `max_data_blocks_per_simple_indirection` is lower than `usize::MAX` when `usize` is at least
                         // `u16`
                         .take(unsafe { usize::try_from(max_data_blocks_per_simple_indirection).unwrap_unchecked() })
-                        .map(|block| BlockWithState {
-                            block,
-                            state: State::Updated,
-                        })
                         .collect_vec(),
                 ));
             }
@@ -581,10 +540,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
                         // SAFETY: `max_data_blocks_per_simple_indirection` is lower than `usize::MAX` when `usize` is at least
                         // `u16`
                         .take(unsafe { usize::try_from(max_data_blocks_per_simple_indirection).unwrap_unchecked() })
-                        .map(|block| BlockWithState {
-                            block,
-                            state: State::Updated,
-                        })
                         .collect_vec(),
                 ));
             }
@@ -602,8 +557,6 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         // Write everything that has to change.
 
-        drop(fs);
-
         let mut offset = self.io_offset;
         let mut written_bytes = 0_usize;
 
@@ -614,11 +567,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         // Singly indirected block pointer
         if singly_indirect_block_pointer.state == State::Updated {
-            write_indirect_block(
-                &self.filesystem,
-                singly_indirect_block_pointer.block,
-                &singly_indirect_blocks.iter().map(|block_with_state| block_with_state.block).collect_vec(),
-            )?;
+            write_indirect_block(&self.filesystem, singly_indirect_block_pointer.block, &singly_indirect_blocks)?;
         }
 
         for block in singly_indirect_blocks {
@@ -639,11 +588,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         for block_pointer in doubly_indirect_blocks {
             if block_pointer.0.state == State::Updated {
-                write_indirect_block(
-                    &self.filesystem,
-                    block_pointer.0.block,
-                    &block_pointer.1.iter().map(|block_with_state| block_with_state.block).collect_vec(),
-                )?;
+                write_indirect_block(&self.filesystem, block_pointer.0.block, &block_pointer.1)?;
             }
 
             for block in block_pointer.1 {
@@ -674,11 +619,7 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
             for block_pointer in block_pointer_pointer.1 {
                 if block_pointer.0.state == State::Updated {
-                    write_indirect_block(
-                        &self.filesystem,
-                        block_pointer.0.block,
-                        &block_pointer.1.iter().map(|block_with_state| block_with_state.block).collect_vec(),
-                    )?;
+                    write_indirect_block(&self.filesystem, block_pointer.0.block, &block_pointer.1)?;
                 }
 
                 for block in block_pointer.1 {
@@ -687,13 +628,12 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
             }
         }
 
+        assert_eq!(written_bytes as u64, bytes_to_write, "I fucked up the write_data_block function");
+        assert_eq!(offset, 0, "I fucked up the write_data_block function");
+
         let mut updated_inode = self.inode;
 
-        let mut direct_block_pointers = direct_block_pointers
-            .clone()
-            .into_iter()
-            .map(|block_with_state| block_with_state.block)
-            .collect_vec();
+        let mut direct_block_pointers = direct_block_pointers.clone();
         direct_block_pointers.append(&mut vec![0_u32; 12].into_iter().take(12 - direct_block_pointers.len()).collect_vec());
         let mut updated_direct_block_pointers = updated_inode.direct_block_pointers;
         updated_direct_block_pointers.clone_from_slice(&direct_block_pointers);
@@ -707,12 +647,14 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
 
         // SAFETY: the result cannot be greater than `u32::MAX`
         updated_inode.size = unsafe { u32::try_from(new_size & u64::from(u32::MAX)).unwrap_unchecked() };
+        // TODO: update `updated_inode.blocks`
 
         assert!(u32::try_from(new_size).is_ok(), "Search how to deal with bigger files");
 
         // SAFETY: the updated inode contains the right inode created in this function
         unsafe { self.set_inode(&updated_inode) }?;
 
+        // TODO: be smarter to avoid make 1000000 calls to device's `write`
         free_block_copied.try_for_each(|block| Block::new(self.filesystem.clone(), block).set_used())?;
 
         Ok(written_bytes)
@@ -1167,5 +1109,41 @@ mod test {
         assert_eq!(foo.read_all().unwrap(), b"Hello earth!\nI love dogs!\n");
 
         fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_without_allocation.ext2").unwrap();
+    }
+
+    #[test]
+    fn write_file_dbp_extend_with_allocation() {
+        const BYTES_TO_WRITE: usize = 12_000;
+
+        fs::copy(
+            "./tests/fs/ext2/io_operations.ext2",
+            "./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_with_allocation.ext2",
+        )
+        .unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_with_allocation.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let TypeWithFile::Directory(root) = ext2.file(ROOT_DIRECTORY_INODE).unwrap() else { panic!() };
+        let Some(TypeWithFile::Regular(mut foo)) = crate::file::Directory::entry(&root, UnixStr::new("foo.txt").unwrap()).unwrap()
+        else {
+            panic!()
+        };
+
+        let replace_text = &[b'a'; BYTES_TO_WRITE];
+        foo.write(replace_text).unwrap();
+        foo.flush().unwrap();
+
+        assert_eq!(foo.file.inode, Inode::parse(&ext2.borrow().device, ext2.borrow().superblock(), foo.file.inode_number).unwrap());
+
+        assert_eq!(foo.read_all().unwrap().len(), BYTES_TO_WRITE);
+        assert_eq!(foo.read_all().unwrap().into_iter().all_equal_value(), Ok(b'a'));
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_write_file_dbp_extend_with_allocation.ext2").unwrap();
     }
 }

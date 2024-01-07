@@ -195,14 +195,14 @@ pub trait Device<T: Copy, E: core::error::Error> {
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`](Device::Error) if the read could not be completed.
+    /// Returns an [`Error`] if the read could not be completed.
     fn slice(&self, addr_range: Range<Address>) -> Result<Slice<'_, T>, Error<E>>;
 
     /// Writes the [`Commit`] onto the device.
     ///
     /// # Errors
     ///
-    /// Returns an [`Error`](Device::Error) if the write could not be completed.
+    /// Returns an [`Error`] if the write could not be completed.
     fn commit(&mut self, commit: Commit<T>) -> Result<(), Error<E>>;
 
     /// Read an element of type `O` on the device starting at the address `starting_addr`.
@@ -229,6 +229,9 @@ pub trait Device<T: Copy, E: core::error::Error> {
     }
 
     /// Writes an element of type `O` on the device starting at the address `starting_addr`.
+    ///
+    /// Beware, the `object` **must be the owned `O` object and not a borrow**, otherwise the pointer to the object will be copied,
+    /// and not the object itself.
     ///
     /// # Errors
     ///
@@ -325,7 +328,7 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     #[inline]
     fn size(&self) -> Size {

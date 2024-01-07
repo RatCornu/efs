@@ -20,7 +20,7 @@ pub trait Read<E: core::error::Error> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>>;
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl<E: core::error::Error, S: std::io::Read> Read<E> for S {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>> {
@@ -55,7 +55,7 @@ pub trait Write<E: core::error::Error> {
     fn flush(&mut self) -> Result<(), Error<E>>;
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl<E: core::error::Error, S: std::io::Write> Write<E> for S {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<E>> {
@@ -87,7 +87,7 @@ pub enum SeekFrom {
     Current(i64),
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl From<std::io::SeekFrom> for SeekFrom {
     #[inline]
     fn from(value: std::io::SeekFrom) -> Self {
@@ -99,7 +99,7 @@ impl From<std::io::SeekFrom> for SeekFrom {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl From<SeekFrom> for std::io::SeekFrom {
     #[inline]
     fn from(value: SeekFrom) -> Self {
@@ -125,7 +125,7 @@ pub trait Seek<E: core::error::Error> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>>;
 }
 
-#[cfg(feature = "std")]
+#[cfg(not(no_std))]
 impl<E: core::error::Error, S: std::io::Seek> Seek<E> for S {
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>> {

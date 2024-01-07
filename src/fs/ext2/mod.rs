@@ -116,10 +116,10 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
         self.update_inner_superblock()?;
         let mut device = self.device.borrow_mut();
 
-        device.write_at(Address::new(SUPERBLOCK_START_BYTE), superblock.base())?;
+        device.write_at(Address::new(SUPERBLOCK_START_BYTE), *superblock.base())?;
 
         if let Some(extended) = superblock.extended_fields() {
-            device.write_at(Address::new(SUPERBLOCK_START_BYTE + size_of::<superblock::Base>()), extended)?;
+            device.write_at(Address::new(SUPERBLOCK_START_BYTE + size_of::<superblock::Base>()), *extended)?;
         }
 
         Ok(())
@@ -250,12 +250,23 @@ mod test {
     }
 
     #[test]
-    fn free_blocks() {
+    fn free_block_numbers() {
         let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
         let ext2 = Ext2::new(device, 0).unwrap();
         let fs = Celled::new(ext2);
         let free_blocks = fs.free_blocks(1_024).unwrap();
 
         assert!(free_blocks.iter().all_unique());
+    }
+
+    #[test]
+    fn free_block_amount() {
+        let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
+        let ext2 = Ext2::new(device, 0).unwrap();
+        let fs = Celled::new(ext2);
+
+        for i in 1_u32..1_024 {
+            assert_eq!(fs.free_blocks(i).unwrap().len(), i as usize);
+        }
     }
 }

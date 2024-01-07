@@ -89,14 +89,27 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
         let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group)?;
         let mut block_group_descriptor_bitmap_block = Self::new(self.filesystem.clone(), block_group_descriptor.block_bitmap);
 
-        let bitmap = block_group_descriptor_bitmap_block.read_all()?;
-        let bitmap_index = self.group_index();
-
+        let bitmap_index = u64::from(self.group_index());
         let byte_index = bitmap_index / 8;
         let byte_offset = bitmap_index % 8;
 
-        // SAFETY: `bitmap_index < block_size`
-        Ok(unsafe { (bitmap.get_unchecked(byte_index as usize) >> byte_offset) & 1 } == 0)
+        let mut buffer = [0_u8];
+        block_group_descriptor_bitmap_block.seek(SeekFrom::Start(byte_index))?;
+        block_group_descriptor_bitmap_block.read(&mut buffer)?;
+
+        Ok((buffer[0] >> byte_offset) & 1 == 0)
+    }
+
+    /// Returns whether this block is currently used or not.
+    ///
+    /// As this operation needs to read directly from the given device, it is quite costly in computational time.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Error`] if the device cannot be read.
+    #[inline]
+    pub fn is_used(&self) -> Result<bool, Error<Ext2Error>> {
+        self.is_free().map(|is_free| !is_free)
     }
 
     /// Sets the current block usage in the block bitmap, and updates the superblock accordingly.
@@ -104,6 +117,8 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
     /// # Errors
     ///
     /// Returns an [`BlockAlreadyInUse`](Ext2Error::BlockAlreadyInUse) error if the given block was already in use.
+    ///
+    /// Returns an [`BlockAlreadyFree`](Ext2Error::BlockAlreadyFree) error if the given block was already free.
     ///
     /// Otherwise, returns an [`Error`] if the device cannot be written.
     fn set_usage(&mut self, used: bool) -> Result<(), Error<Ext2Error>> {
@@ -122,18 +137,13 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
         block_group_descriptor_bitmap_block.seek(SeekFrom::Start(u64::from(byte_index)))?;
         block_group_descriptor_bitmap_block.read(&mut buffer)?;
 
-        if (buffer[0] >> byte_offset) & 1 == used.into() {
-            if used {
-                Err(Ext2Error::BlockAlreadyInUse(self.number).into())
-            } else {
-                Err(Ext2Error::BlockAlreadyFree(self.number).into())
-            }
-        } else if used {
-            buffer[0] |= 1 << byte_offset;
-            block_group_descriptor_bitmap_block.write(&buffer)?;
-            Ok(())
+        if (buffer[0] >> byte_offset) & 1 == 1 && used {
+            Err(Ext2Error::BlockAlreadyInUse(self.number).into())
+        } else if (buffer[0] >> byte_offset) & 1 == 0 && !used {
+            Err(Ext2Error::BlockAlreadyFree(self.number).into())
         } else {
-            buffer[0] &= 0 << byte_offset;
+            buffer[0] ^= 1 << byte_offset;
+            block_group_descriptor_bitmap_block.seek(SeekFrom::Current(-1_i64))?;
             block_group_descriptor_bitmap_block.write(&buffer)?;
             Ok(())
         }
@@ -143,7 +153,7 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
     ///
     /// # Errors
     ///
-    /// Returns an [`BlockAlreadyInUse`](Ext2Error::BlockAlreadyInUse) error if the given block was already in use.
+    /// Returns an [`BlockAlreadyFree`](Ext2Error::BlockAlreadyFree) error if the given block was already free.
     ///
     /// Otherwise, returns an [`Error`] if the device cannot be written.
     #[inline]
@@ -193,7 +203,7 @@ impl<Dev: Device<u8, Ext2Error>> Read<Ext2Error> for Block<Dev> {
         let device = fs.device.borrow();
 
         let length = ((fs.superblock().block_size() - self.io_offset) as usize).min(buf.len());
-        let starting_addr = Address::new((self.number * fs.superblock().block_size()) as usize);
+        let starting_addr = Address::new((self.number * fs.superblock().block_size() + self.io_offset) as usize);
         let slice = device.slice(starting_addr..starting_addr + length)?;
         buf.clone_from_slice(slice.as_ref());
 
@@ -276,7 +286,7 @@ mod test {
 
     #[test]
     fn block_read() {
-        const BLOCK_NUMBER: u32 = 9;
+        const BLOCK_NUMBER: u32 = 2;
 
         let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/io_operations.ext2").unwrap());
         let celled_file = Celled::new(file);
@@ -326,5 +336,59 @@ mod test {
         assert_eq!(block.read_all().unwrap(), start);
 
         fs::remove_file("./tests/fs/ext2/io_operations_copy_block_write.ext2").unwrap();
+    }
+
+    #[test]
+    fn block_set_free() {
+        // This block should not be free
+        const BLOCK_NUMBER: u32 = 9;
+
+        fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_block_set_free.ext2").unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_block_set_free.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+
+        let mut block = Block::new(ext2, BLOCK_NUMBER);
+
+        assert!(block.is_used().unwrap());
+
+        block.set_free().unwrap();
+
+        assert!(block.is_free().unwrap());
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_block_set_free.ext2").unwrap();
+    }
+
+    #[test]
+    fn block_set_used() {
+        // This block should not be used
+        const BLOCK_NUMBER: u32 = 1234;
+
+        fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_block_set_used.ext2").unwrap();
+
+        let file = RefCell::new(
+            File::options()
+                .read(true)
+                .write(true)
+                .open("./tests/fs/ext2/io_operations_copy_block_set_used.ext2")
+                .unwrap(),
+        );
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+
+        let mut block = Block::new(ext2, BLOCK_NUMBER);
+
+        assert!(block.is_free().unwrap());
+
+        block.set_used().unwrap();
+
+        assert!(block.is_used().unwrap());
+
+        fs::remove_file("./tests/fs/ext2/io_operations_copy_block_set_used.ext2").unwrap();
     }
 }

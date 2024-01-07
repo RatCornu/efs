@@ -46,7 +46,7 @@ pub trait FileSystem<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: F
     ///
     /// # Errors
     ///
-    /// Returns an [`NotFound`](no_std_io::io::ErrorKind) error if the given path does not leed to an existing path.
+    /// Returns an [`NotFound`](FsError::NotFound) error if the given path does not leed to an existing path.
     ///
     /// Returns an [`NotDir`](FsError::NotDir) error if one of the components of the file is not a directory.
     ///
