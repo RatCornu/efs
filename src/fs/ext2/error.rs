@@ -4,7 +4,6 @@ use core::error;
 use core::fmt::{self, Display};
 
 use super::superblock::EXT2_SIGNATURE;
-use crate::file::Type;
 
 /// Enumeration of possible errors encountered with Ext2's manipulation.
 #[allow(clippy::module_name_repetitions)]
@@ -59,9 +58,6 @@ pub enum Ext2Error {
 
     /// Tried to access a byte which is out of bounds.
     OutOfBounds(i128),
-
-    /// Tried to assign a wrong type to a file.
-    WrongFileType(Type, Type),
 }
 
 impl Display for Ext2Error {
@@ -104,9 +100,6 @@ impl Display for Ext2Error {
             },
             Self::OutOfBounds(byte) => {
                 write!(formatter, "Out of Bounds: tried to access the {byte}th byte which is out of bounds")
-            },
-            Self::WrongFileType(expected, given) => {
-                write!(formatter, "Wrong File Type: {expected:?} file type expected, {given:?} given")
             },
         }
     }

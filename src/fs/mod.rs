@@ -28,14 +28,22 @@ pub const PATH_MAX: usize = 4_096;
 /// A filesystem.
 pub trait FileSystem<Dir: Directory> {
     /// Returns the root directory of the filesystem.
-    fn root(&self) -> Dir;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DevError`](crate::dev::error::DevError) if the device could not be read.
+    fn root(&self) -> Result<Dir, Error<Dir::Error>>;
 
     /// Returns the double slash root directory of the filesystem.
     ///
     /// If you do not have any idea of what this is, you are probably looking for [`root`](trait.FileSystem.html#tymethod.root).
     ///
     /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more information.
-    fn double_slash_root(&self) -> Dir;
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DevError`](crate::dev::error::DevError) if the device could not be read.
+    fn double_slash_root(&self) -> Result<Dir, Error<Dir::Error>>;
 
     /// Performs a pathname resolution as described in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13).
     ///
@@ -96,14 +104,14 @@ pub trait FileSystem<Dir: Directory> {
                 match comp {
                     Component::RootDir => {
                         if pos == Position::First || pos == Position::Only {
-                            current_dir = fs.root();
+                            current_dir = fs.root()?;
                         } else {
                             unreachable!("The root directory cannot be encountered during the pathname resolution");
                         }
                     },
                     Component::DoubleSlashRootDir => {
                         if pos == Position::First || pos == Position::Only {
-                            current_dir = fs.double_slash_root();
+                            current_dir = fs.double_slash_root()?;
                         } else {
                             unreachable!("The double slash root directory cannot be encountered during the pathname resolution");
                         }

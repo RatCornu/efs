@@ -10,8 +10,9 @@ use self::block::Block;
 use self::block_group::BlockGroupDescriptor;
 use self::error::Ext2Error;
 use self::file::{Directory, Regular, SymbolicLink};
-use self::inode::Inode;
+use self::inode::{Inode, ROOT_DIRECTORY_INODE};
 use self::superblock::{Superblock, SUPERBLOCK_START_BYTE};
+use super::FileSystem;
 use crate::dev::celled::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
@@ -211,6 +212,23 @@ impl<Dev: Device<u8, Ext2Error>> Celled<Ext2<Dev>> {
         Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughFreeBlocks(n, unsafe {
             free_blocks.len().try_into().unwrap_unchecked()
         }))))
+    }
+}
+
+impl<Dev: Device<u8, Ext2Error>> FileSystem<Directory<Dev>> for Celled<Ext2<Dev>> {
+    #[inline]
+    fn root(&self) -> Result<Directory<Dev>, Error<<Directory<Dev> as crate::file::Directory>::Error>> {
+        self.file(ROOT_DIRECTORY_INODE).and_then(|root| match root {
+            TypeWithFile::Directory(root_dir) => Ok(root_dir),
+            TypeWithFile::Regular(_) | TypeWithFile::SymbolicLink(_) | TypeWithFile::Other(_) => {
+                Err(Error::Fs(FsError::WrongFileType(Type::Directory, root.into())))
+            },
+        })
+    }
+
+    #[inline]
+    fn double_slash_root(&self) -> Result<Directory<Dev>, Error<<Directory<Dev> as crate::file::Directory>::Error>> {
+        self.root()
     }
 }
 

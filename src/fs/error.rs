@@ -4,6 +4,8 @@ use alloc::string::String;
 use core::fmt;
 use core::fmt::Display;
 
+use crate::file::Type;
+
 /// Enumeration of possible errors encountered with [`FileSystem`](super::FileSystem)s' manipulation.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
@@ -25,6 +27,11 @@ pub enum FsError<E: core::error::Error> {
 
     /// Indicates that this error is coming from the filesystem's implementation.
     Implementation(E),
+
+    /// Tried to assign a wrong type to a file.
+    ///
+    /// `WrongFileType(expected, given)`
+    WrongFileType(Type, Type),
 }
 
 impl<E: core::error::Error> Display for FsError<E> {
@@ -37,6 +44,9 @@ impl<E: core::error::Error> Display for FsError<E> {
             Self::NoEnt(filename) => write!(formatter, "No entry: \"{filename}\" is an symbolic link pointing at an empty string"),
             Self::NotFound(filename) => write!(formatter, "Not found: \"{filename}\" has not been found"),
             Self::Implementation(err) => write!(formatter, "{err}"),
+            Self::WrongFileType(expected, given) => {
+                write!(formatter, "Wrong File Type: {expected:?} file type expected, {given:?} given")
+            },
         }
     }
 }
