@@ -143,9 +143,11 @@ pub struct Regular<D: Device<u8, Ext2Error>> {
     file: File<D>,
 }
 
-impl<D: Device<u8, Ext2Error>> Read<Ext2Error> for File<D> {
+impl<D: Device<u8, Ext2Error>> Read for File<D> {
+    type Error = Ext2Error;
+
     #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Ext2Error>> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>> {
         let filesystem = self.filesystem.borrow();
         self.inode
             .read_data(&filesystem.device, &filesystem.superblock, buf, self.io_offset)
@@ -179,11 +181,13 @@ struct BlockWithState {
     state: State,
 }
 
-impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
+impl<D: Device<u8, Ext2Error>> Write for File<D> {
+    type Error = Ext2Error;
+
     #[inline]
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::cognitive_complexity)] // TODO: make this understandable for a human
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>> {
         /// Writes the given `blocks` number in the indirect block with the number `block_number`.
         fn write_indirect_block<D: Device<u8, Ext2Error>>(
             filesystem: &Celled<Ext2<D>>,
@@ -664,7 +668,9 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for File<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Seek<Ext2Error> for File<D> {
+impl<D: Device<u8, Ext2Error>> Seek for File<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         // SAFETY: it is safe to assume that the file length is smaller than 2^63 bytes long
@@ -746,14 +752,18 @@ impl<D: Device<u8, Ext2Error>> file::File for Regular<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Read<Ext2Error> for Regular<D> {
+impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Ext2Error>> {
         self.file.read(buf)
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for Regular<D> {
+impl<D: Device<u8, Ext2Error>> Write for Regular<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
         self.file.write(buf)
@@ -765,14 +775,16 @@ impl<D: Device<u8, Ext2Error>> Write<Ext2Error> for Regular<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Seek<Ext2Error> for Regular<D> {
+impl<D: Device<u8, Ext2Error>> Seek for Regular<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         self.file.seek(pos)
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::Regular<Ext2Error> for Regular<D> {}
+impl<D: Device<u8, Ext2Error>> file::Regular for Regular<D> {}
 
 /// Interface for ext2's directories.
 #[derive(Debug)]
@@ -818,11 +830,14 @@ impl<D: Device<u8, Ext2Error>> file::File for Directory<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::Directory<Ext2Error, Regular<D>, SymbolicLink<D>, File<D>> for Directory<D> {
+impl<Dev: Device<u8, Ext2Error>> file::Directory for Directory<Dev> {
+    type Error = Ext2Error;
+    type File = File<Dev>;
+    type Regular = Regular<Dev>;
+    type SymbolicLink = SymbolicLink<Dev>;
+
     #[inline]
-    fn entries(
-        &self,
-    ) -> Result<Vec<file::DirectoryEntry<Ext2Error, Regular<D>, SymbolicLink<D>, File<D>, Self>>, Error<Ext2Error>> {
+    fn entries(&self) -> Result<Vec<file::DirectoryEntry<Self>>, Error<Ext2Error>> {
         let mut entries = Vec::new();
 
         for entry in &self.entries {

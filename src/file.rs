@@ -3,7 +3,6 @@
 //! See [this Wikipedia page](https://en.wikipedia.org/wiki/Unix_file_types) and [the POSIX header of `<sys/stat.h>`](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html) for more information.
 
 use alloc::vec::Vec;
-use core::marker::PhantomData;
 
 use crate::error::Error;
 use crate::io::{Read, Seek, Write};
@@ -69,25 +68,37 @@ pub trait File {
 /// A file that is a randomly accessible sequence of bytes, with no further structure imposed by the system.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_323).
-pub trait Regular<E: core::error::Error>: File + Read<E> + Write<E> + Seek<E> {}
+pub trait Regular: File + Read + Write + Seek {}
 
 /// An object that associates a filename with a file. Several directory entries can associate names with the same file.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_130).
-pub struct DirectoryEntry<'path, E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>> {
+pub struct DirectoryEntry<'path, Dir: Directory> {
     /// Name of the file pointed by this directory entry.
     ///
     /// See more information on valid filenames in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_170).
     pub filename: UnixStr<'path>,
 
     /// File pointed by this directory entry.
-    pub file: TypeWithFile<E, R, S, F, D>,
+    pub file: TypeWithFile<Dir>,
 }
 
 /// A file that contains directory entries. No two directory entries in the same directory have the same name.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_129).
-pub trait Directory<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File>: Sized + File {
+pub trait Directory: Sized + File {
+    /// Error type associated with the directories of the [`FileSystem`](crate::fs::FileSystem) they belong to.
+    type Error: core::error::Error;
+
+    /// Type of the regular files in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
+    type Regular: Regular;
+
+    /// Type of the symbolic links in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
+    type SymbolicLink: SymbolicLink;
+
+    /// Type of the other files (if any) in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
+    type File: File;
+
     /// Returns the directory entries contained.
     ///
     /// No two [`DirectoryEntry`] returned can have the same `filename`.
@@ -98,7 +109,7 @@ pub trait Directory<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: Fi
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     #[allow(clippy::type_complexity)]
-    fn entries(&self) -> Result<Vec<DirectoryEntry<E, R, S, F, Self>>, Error<E>>;
+    fn entries(&self) -> Result<Vec<DirectoryEntry<Self>>, Error<Self::Error>>;
 
     /// Returns the entry with the given name.
     ///
@@ -107,7 +118,7 @@ pub trait Directory<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: Fi
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     #[allow(clippy::type_complexity)]
     #[inline]
-    fn entry(&self, name: UnixStr) -> Result<Option<TypeWithFile<E, R, S, F, Self>>, Error<E>> {
+    fn entry(&self, name: UnixStr) -> Result<Option<TypeWithFile<Self>>, Error<Self::Error>> {
         let children = self.entries()?;
         Ok(children.into_iter().find(|entry| entry.filename == name).map(|entry| entry.file))
     }
@@ -120,7 +131,7 @@ pub trait Directory<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: Fi
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     #[inline]
-    fn parent(&self) -> Result<Self, Error<E>> {
+    fn parent(&self) -> Result<Self, Error<Self::Error>> {
         let Some(TypeWithFile::Directory(parent_entry)) = self.entry(PARENT_DIR.clone())? else {
             unreachable!("`entries` must return `..` that corresponds to the parent directory.")
         };
@@ -175,49 +186,28 @@ pub enum Type {
 /// [`Directory`](Type::Directory) and the [`SymbolicLink`](Type::SymbolicLink) can be found (and the files not described in the
 /// POSIX norm).
 #[allow(clippy::module_name_repetitions)]
-pub enum TypeWithFile<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>> {
+pub enum TypeWithFile<Dir: Directory> {
     /// Storage unit of a filesystem.
-    Regular(R),
+    Regular(Dir::Regular),
 
     /// Node containing other nodes.
-    Directory(D),
+    Directory(Dir),
 
     /// Node pointing towards an other node in the filesystem.
-    SymbolicLink(S),
+    SymbolicLink(Dir::SymbolicLink),
 
     /// A file system dependant file (e.g [the Doors](https://en.wikipedia.org/wiki/Doors_(computing)) on Solaris systems).
-    Other(F),
-
-    /// Unreachable variant needed because of needed type parameter `E`.
-    Never((!, PhantomData<E>)),
+    Other(Dir::File),
 }
 
-impl<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>> From<TypeWithFile<E, R, S, F, D>>
-    for Type
-{
+impl<Dir: Directory> From<TypeWithFile<Dir>> for Type {
     #[inline]
-    fn from(value: TypeWithFile<E, R, S, F, D>) -> Self {
+    fn from(value: TypeWithFile<Dir>) -> Self {
         match value {
             TypeWithFile::Regular(_) => Self::Regular,
             TypeWithFile::Directory(_) => Self::Directory,
             TypeWithFile::SymbolicLink(_) => Self::SymbolicLink,
             TypeWithFile::Other(_) => Self::Other,
-            TypeWithFile::Never(_) => unreachable!(),
-        }
-    }
-}
-
-impl<E: core::error::Error, R: Regular<E> + Clone, S: SymbolicLink + Clone, F: File + Clone, D: Directory<E, R, S, F> + Clone> Clone
-    for TypeWithFile<E, R, S, F, D>
-{
-    #[inline]
-    fn clone(&self) -> Self {
-        match self {
-            Self::Regular(file) => Self::Regular(file.clone()),
-            Self::Directory(file) => Self::Directory(file.clone()),
-            Self::SymbolicLink(file) => Self::SymbolicLink(file.clone()),
-            Self::Other(file) => Self::Other(file.clone()),
-            _ => unreachable!(),
         }
     }
 }

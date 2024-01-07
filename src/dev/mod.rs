@@ -4,12 +4,15 @@ use alloc::borrow::{Cow, ToOwned};
 use alloc::boxed::Box;
 use alloc::slice;
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use core::cell::RefCell;
 use core::iter::Step;
 use core::mem::{size_of, transmute_copy};
 use core::ops::{Deref, DerefMut, Range};
 use core::ptr::{addr_of, slice_from_raw_parts};
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::{ErrorKind, Read, Seek, Write};
 
 use self::sector::Address;
@@ -328,7 +331,7 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
-#[cfg(not(no_std))]
+#[cfg(feature = "std")]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     #[inline]
     fn size(&self) -> Size {

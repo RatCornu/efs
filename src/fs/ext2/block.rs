@@ -196,7 +196,9 @@ impl<Dev: Device<u8, Ext2Error>> From<Block<Dev>> for u32 {
     }
 }
 
-impl<Dev: Device<u8, Ext2Error>> Read<Ext2Error> for Block<Dev> {
+impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {
+    type Error = Ext2Error;
+
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();
@@ -214,7 +216,9 @@ impl<Dev: Device<u8, Ext2Error>> Read<Ext2Error> for Block<Dev> {
     }
 }
 
-impl<Dev: Device<u8, Ext2Error>> Write<Ext2Error> for Block<Dev> {
+impl<Dev: Device<u8, Ext2Error>> Write for Block<Dev> {
+    type Error = Ext2Error;
+
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();
@@ -239,7 +243,9 @@ impl<Dev: Device<u8, Ext2Error>> Write<Ext2Error> for Block<Dev> {
     }
 }
 
-impl<Dev: Device<u8, Ext2Error>> Seek<Ext2Error> for Block<Dev> {
+impl<Dev: Device<u8, Ext2Error>> Seek for Block<Dev> {
+    type Error = Ext2Error;
+
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();

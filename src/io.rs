@@ -5,7 +5,10 @@ use crate::error::Error;
 /// Allows for reading bytes from a source.
 ///
 /// See [`std::io::Read`] for more information: this trait is a `no_std` based variant.
-pub trait Read<E: core::error::Error> {
+pub trait Read {
+    /// Error type corresponding to the [`FileSystem`](crate::fs::FileSystem) implemented.
+    type Error: core::error::Error;
+
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
     ///
     /// If the returned number is 0, the reader is considered as ended.
@@ -17,21 +20,26 @@ pub trait Read<E: core::error::Error> {
     /// # Errors
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>>;
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>>;
 }
 
-#[cfg(not(no_std))]
-impl<E: core::error::Error, S: std::io::Read> Read<E> for S {
+#[cfg(feature = "std")]
+impl<S: std::io::Read> Read for S {
+    type Error = std::io::Error;
+
     #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<E>> {
-        std::io::Read::read(self, buf).map_err(|err| Error::IO(err))
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>> {
+        std::io::Read::read(self, buf).map_err(Error::IO)
     }
 }
 
 /// Allows for writing bytes to a destination.
 ///
 /// See [`std::io::Write`] for more information: this trait is a `no_std` based variant.
-pub trait Write<E: core::error::Error> {
+pub trait Write {
+    /// Error type corresponding to the [`FileSystem`](crate::fs::FileSystem) implemented.
+    type Error: core::error::Error;
+
     /// Write a buffer into this writer, returning how many bytes were written.
     ///
     /// If the returned number is 0, either the writer is ended or cannot add any more bytes at its end.
@@ -43,7 +51,7 @@ pub trait Write<E: core::error::Error> {
     /// # Errors
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be written.
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<E>>;
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>>;
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
     ///
@@ -52,19 +60,21 @@ pub trait Write<E: core::error::Error> {
     /// # Errors
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
-    fn flush(&mut self) -> Result<(), Error<E>>;
+    fn flush(&mut self) -> Result<(), Error<Self::Error>>;
 }
 
-#[cfg(not(no_std))]
-impl<E: core::error::Error, S: std::io::Write> Write<E> for S {
+#[cfg(feature = "std")]
+impl<S: std::io::Write> Write for S {
+    type Error = std::io::Error;
+
     #[inline]
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<E>> {
-        std::io::Write::write(self, buf).map_err(|err| Error::IO(err))
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>> {
+        std::io::Write::write(self, buf).map_err(Error::IO)
     }
 
     #[inline]
-    fn flush(&mut self) -> Result<(), Error<E>> {
-        std::io::Write::flush(self).map_err(|err| Error::IO(err))
+    fn flush(&mut self) -> Result<(), Error<Self::Error>> {
+        std::io::Write::flush(self).map_err(Error::IO)
     }
 }
 
@@ -87,7 +97,7 @@ pub enum SeekFrom {
     Current(i64),
 }
 
-#[cfg(not(no_std))]
+#[cfg(feature = "std")]
 impl From<std::io::SeekFrom> for SeekFrom {
     #[inline]
     fn from(value: std::io::SeekFrom) -> Self {
@@ -99,7 +109,7 @@ impl From<std::io::SeekFrom> for SeekFrom {
     }
 }
 
-#[cfg(not(no_std))]
+#[cfg(feature = "std")]
 impl From<SeekFrom> for std::io::SeekFrom {
     #[inline]
     fn from(value: SeekFrom) -> Self {
@@ -114,7 +124,10 @@ impl From<SeekFrom> for std::io::SeekFrom {
 /// Provides a cursor which can be moved within a stream of bytes.
 ///
 /// See [`std::io::Seek`] for more information: this trait is a `no_std` based variant.
-pub trait Seek<E: core::error::Error> {
+pub trait Seek {
+    /// Error type corresponding to the [`FileSystem`](crate::fs::FileSystem) implemented.
+    type Error: core::error::Error;
+
     /// Seek to an offset, in bytes, in a stream.
     ///
     /// See [`seek`](https://docs.rs/no_std_io/latest/no_std_io/io/trait.Seek.html#tymethod.seek) for more information.
@@ -122,13 +135,15 @@ pub trait Seek<E: core::error::Error> {
     /// # Errors
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>>;
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Self::Error>>;
 }
 
-#[cfg(not(no_std))]
-impl<E: core::error::Error, S: std::io::Seek> Seek<E> for S {
+#[cfg(feature = "std")]
+impl<S: std::io::Seek> Seek for S {
+    type Error = std::io::Error;
+
     #[inline]
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<E>> {
-        std::io::Seek::seek(self, pos.into()).map_err(|err| Error::IO(err))
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Self::Error>> {
+        std::io::Seek::seek(self, pos.into()).map_err(Error::IO)
     }
 }

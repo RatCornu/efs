@@ -9,7 +9,7 @@ use core::mem::size_of;
 use self::block::Block;
 use self::block_group::BlockGroupDescriptor;
 use self::error::Ext2Error;
-use self::file::{Directory, File, Regular, SymbolicLink};
+use self::file::{Directory, Regular, SymbolicLink};
 use self::inode::Inode;
 use self::superblock::{Superblock, SUPERBLOCK_START_BYTE};
 use crate::dev::celled::Celled;
@@ -29,7 +29,7 @@ pub mod superblock;
 
 /// Type alias to reduce complexity in functions' types.
 #[allow(clippy::module_name_repetitions)]
-pub type Ext2TypeWithFile<Dev> = TypeWithFile<Ext2Error, Regular<Dev>, SymbolicLink<Dev>, File<Dev>, Directory<Dev>>;
+pub type Ext2TypeWithFile<Dev> = TypeWithFile<Directory<Dev>>;
 
 /// Main interface for devices containing an ext2 filesystem.
 #[derive(Clone)]

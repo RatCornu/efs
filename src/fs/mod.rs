@@ -26,16 +26,16 @@ pub mod ext2;
 pub const PATH_MAX: usize = 4_096;
 
 /// A filesystem.
-pub trait FileSystem<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>> {
+pub trait FileSystem<Dir: Directory> {
     /// Returns the root directory of the filesystem.
-    fn root(&self) -> D;
+    fn root(&self) -> Dir;
 
     /// Returns the double slash root directory of the filesystem.
     ///
     /// If you do not have any idea of what this is, you are probably looking for [`root`](trait.FileSystem.html#tymethod.root).
     ///
     /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more information.
-    fn double_slash_root(&self) -> D;
+    fn double_slash_root(&self) -> Dir;
 
     /// Performs a pathname resolution as described in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_13).
     ///
@@ -59,22 +59,28 @@ pub trait FileSystem<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: F
     fn pathname_resolution(
         &self,
         path: &Path,
-        current_dir: D,
+        current_dir: Dir,
         symlink_resolution: bool,
-    ) -> Result<TypeWithFile<E, R, S, F, D>, Error<E>>
+    ) -> Result<TypeWithFile<Dir>, Error<Dir::Error>>
     where
         Self: Sized,
     {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn inner_resolution<E: core::error::Error, R: Regular<E>, S: SymbolicLink, F: File, D: Directory<E, R, S, F>>(
-            fs: &impl FileSystem<E, R, S, F, D>,
+        fn inner_resolution<
+            E: core::error::Error,
+            R: Regular,
+            SL: SymbolicLink,
+            F: File,
+            D: Directory<Regular = R, SymbolicLink = SL, File = F, Error = E>,
+        >(
+            fs: &impl FileSystem<D>,
             path: &Path,
             mut current_dir: D,
             symlink_resolution: bool,
             mut visited_symlinks: Vec<String>,
-        ) -> Result<TypeWithFile<E, R, S, F, D>, Error<E>> {
+        ) -> Result<TypeWithFile<D>, Error<E>> {
             let canonical_path = path.canonical();
 
             if canonical_path.len() > PATH_MAX {
