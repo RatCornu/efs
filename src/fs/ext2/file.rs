@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::mem::size_of;
 use core::ops::{AddAssign, SubAssign};
+use core::ptr::addr_of;
 use core::slice::from_raw_parts;
 
 use itertools::Itertools;
@@ -23,6 +24,9 @@ use crate::fs::ext2::block::Block;
 use crate::fs::PATH_MAX;
 use crate::io::{Read, Seek, SeekFrom, Write};
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
+
+/// Limit in bytes for the length of a pointed path of a symbolic link to be store in an inode and not in a separate data block.
+pub const SYMBOLIC_LINK_INODE_STORE_LIMIT: usize = 60;
 
 /// General file implementation.
 pub struct File<D: Device<u8, Ext2Error>> {
@@ -869,13 +873,27 @@ impl<D: Device<u8, Ext2Error>> SymbolicLink<D> {
     ///
     /// Returns a [`BadString`](Ext2Error::BadString) if the content of the given inode does not look like a valid path.
     ///
+    /// Returns a [`NameTooLong`](crate::fs::error::FsError::NameTooLong) if the size of the inode's content is greater than
+    /// [`PATH_MAX`].
+    ///
     /// Otherwise, returns the same errors as [`Ext2::inode`].
     #[inline]
     pub fn new(filesystem: &Celled<Ext2<D>>, inode_number: u32) -> Result<Self, Error<Ext2Error>> {
         let fs = filesystem.borrow();
         let file = File::new(&filesystem.clone(), inode_number)?;
-        let mut buffer = [0_u8; PATH_MAX];
-        let _: usize = file.inode.read_data(&fs.device, fs.superblock(), &mut buffer, 0)?;
+
+        let data_size = usize::try_from(file.inode.data_size()).unwrap_or(PATH_MAX);
+
+        let mut buffer = vec![0_u8; data_size];
+
+        if data_size < SYMBOLIC_LINK_INODE_STORE_LIMIT {
+            // SAFETY: it is always possible to read a slice of u8
+            buffer.clone_from_slice(unsafe {
+                core::slice::from_raw_parts(addr_of!(file.inode.direct_block_pointers).cast(), data_size)
+            });
+        } else {
+            let _: usize = file.inode.read_data(&fs.device, fs.superblock(), &mut buffer, 0)?;
+        }
         let pointed_file = buffer.split(|char| *char == b'\0').next().ok_or(Ext2Error::BadString)?.to_vec();
         Ok(Self {
             file,
@@ -928,7 +946,7 @@ mod test {
                 .into_iter()
                 .map(|entry| entry.name.to_string_lossy().to_string())
                 .collect::<Vec<String>>(),
-            vec![".", "..", "lost+found", "big_file"]
+            vec![".", "..", "lost+found", "big_file", "symlink"]
         );
     }
 
@@ -970,11 +988,22 @@ mod test {
             )
         }
         .unwrap();
+        let symlink = unsafe {
+            Entry::parse(
+                &celled_file,
+                Address::new(
+                    (root_inode.direct_block_pointers[0] * superblock.block_size()) as usize
+                        + (dot.rec_len + two_dots.rec_len + lost_and_found.rec_len + big_file.rec_len) as usize,
+                ),
+            )
+        }
+        .unwrap();
 
         assert_eq!(dot.name.as_c_str().to_string_lossy(), ".");
         assert_eq!(two_dots.name.as_c_str().to_string_lossy(), "..");
         assert_eq!(lost_and_found.name.as_c_str().to_string_lossy(), "lost+found");
         assert_eq!(big_file.name.as_c_str().to_string_lossy(), "big_file");
+        assert_eq!(symlink.name.as_c_str().to_string_lossy(), "symlink");
     }
 
     #[test]
@@ -1028,6 +1057,21 @@ mod test {
         };
 
         assert_eq!(foo.read_all().unwrap(), b"Hello world!\n");
+    }
+
+    #[test]
+    fn read_symlink() {
+        let file = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/extended.ext2").unwrap());
+        let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let root = Directory::new(&ext2, ROOT_DIRECTORY_INODE).unwrap();
+
+        let TypeWithFile::SymbolicLink(symlink) =
+            crate::file::Directory::entry(&root, UnixStr::new("symlink").unwrap()).unwrap().unwrap()
+        else {
+            panic!("`symlink` has been created as a symbolic link")
+        };
+
+        assert_eq!(symlink.pointed_file, "big_file");
     }
 
     #[test]

@@ -399,12 +399,12 @@ impl Inode {
     #[inline]
     pub const fn file_type(&self) -> Result<Type, Ext2Error> {
         let types_permissions = self.type_permissions();
-        if types_permissions.contains(TypePermissions::REGULAR_FILE) {
+        if types_permissions.contains(TypePermissions::SYMBOLIC_LINK) {
+            Ok(Type::SymbolicLink)
+        } else if types_permissions.contains(TypePermissions::REGULAR_FILE) {
             Ok(Type::Regular)
         } else if types_permissions.contains(TypePermissions::DIRECTORY) {
             Ok(Type::Directory)
-        } else if types_permissions.contains(TypePermissions::SYMBOLIC_LINK) {
-            Ok(Type::SymbolicLink)
         } else if types_permissions.contains(TypePermissions::FIFO) {
             Ok(Type::Fifo)
         } else if types_permissions.contains(TypePermissions::CHARACTER_DEVICE) {
