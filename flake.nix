@@ -1,5 +1,5 @@
 {
-  description = "Astre IAM";
+  description = "Extended FS flake";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-23.05";

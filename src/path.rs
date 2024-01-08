@@ -1,6 +1,7 @@
 //! Path manipulation for UNIX-like filesystems
 
 use alloc::borrow::{Cow, ToOwned};
+use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -15,11 +16,14 @@ use regex::Regex;
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum PathError {
-    /// Indicates that a given filename is either empty or contains a `\0` character
+    /// Indicates that a given filename is either empty or contains a `\0` character.
     InvalidFilename(String),
 
-    /// Indicates that the given path is relative while an absolute one is needed
+    /// Indicates that the given path is relative while an absolute one is needed.
     AbsolutePathRequired(String),
+
+    /// Indicates that a given [`CString`] is ill-formed and cannot be converted to a [`UnixStr`].
+    InvalidCString(CString),
 }
 
 impl Display for PathError {
@@ -32,6 +36,9 @@ impl Display for PathError {
             Self::AbsolutePathRequired(path) => {
                 write!(formatter, "Absolute Path Needed: `{path}` is relative while an absolute path is requested")
             },
+            Self::InvalidCString(str) => {
+                write!(formatter, "Invalid CString: `{str:?}` is ill-formed")
+            },
         }
     }
 }
@@ -40,7 +47,7 @@ impl error::Error for PathError {}
 
 /// A general structure to implement paths.
 ///
-/// A [`UnixStr`] cannot be empty nor contain <NUL> character ('\0')! It is guaranteed at creation time.
+/// A [`UnixStr`] cannot be empty nor contain `<NUL>` character ('\0')! It is guaranteed at creation time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnixStr<'path>(Cow<'path, str>);
 
@@ -103,6 +110,23 @@ impl ToString for UnixStr<'_> {
     }
 }
 
+impl TryFrom<CString> for UnixStr<'_> {
+    type Error = <Self as FromStr>::Err;
+
+    #[inline]
+    fn try_from(value: CString) -> Result<Self, Self::Error> {
+        UnixStr::from_str(value.clone().into_string().map_err(|_err| PathError::InvalidCString(value))?.as_str())
+    }
+}
+
+impl<'path> From<UnixStr<'path>> for CString {
+    #[inline]
+    fn from(value: UnixStr) -> Self {
+        // SAFETY: `value` cannot contain any <NUL> char
+        unsafe { Self::from_vec_unchecked(value.0.as_bytes().to_vec()) }
+    }
+}
+
 impl<'path> From<Component<'path>> for UnixStr<'path> {
     #[inline]
     fn from(value: Component<'path>) -> Self {
@@ -122,7 +146,7 @@ impl<'path> From<Component<'path>> for UnixStr<'path> {
 /// separated by `/`. A pathname can optionally contain one or more trailing `/`. Multiple successive `/` characters are considered
 /// to be the same as one `/`, except for the case of exactly two leading `/`.
 ///
-/// See [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_271) for more informations.
+/// See [the POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_271) for more information.
 #[derive(Debug, Clone)]
 #[cfg_attr(not(doc), repr(transparent))]
 pub struct Path<'path> {
@@ -714,6 +738,7 @@ impl ToString for Components<'_> {
 
 #[cfg(test)]
 mod test {
+    use alloc::string::ToString;
     use core::str::FromStr;
 
     use crate::path::{Component, Path, UnixStr};

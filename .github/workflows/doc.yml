@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Generate documentation
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --all-features
       - name: Create index file
         run: echo "<meta http-equiv=\"refresh\" content=\"0; url=efs\">" > target/doc/index.html
       - name: Upload page artifact

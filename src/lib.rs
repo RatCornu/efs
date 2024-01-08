@@ -1,8 +1,8 @@
-//! Extended fs
+//! Extended fs.
 //!
 //! An OS and architecture independent implementation of some Unix filesystems in Rust.
 
-#![cfg_attr(all(not(test), feature = "no_std"), no_std)]
+#![no_std]
 #![deny(
     clippy::complexity,
     clippy::correctness,
@@ -14,6 +14,7 @@
     missing_docs
 )]
 #![allow(
+    clippy::absolute_paths,
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
     clippy::blanket_clippy_restriction_lints,
@@ -30,6 +31,7 @@
     clippy::panic,
     clippy::panic_in_result_fn,
     clippy::pattern_type_mismatch,
+    clippy::pub_with_shorthand,
     clippy::question_mark_used,
     clippy::separated_literal_suffix,
     clippy::shadow_reuse,
@@ -50,21 +52,30 @@
         clippy::indexing_slicing,
         clippy::non_ascii_literal,
         clippy::too_many_lines,
+        clippy::undocumented_unsafe_blocks,
         clippy::unwrap_used,
         clippy::wildcard_imports
     )
 )]
 #![feature(const_mut_refs)]
+#![feature(doc_cfg)]
+#![feature(doc_auto_cfg)]
 #![feature(error_in_core)]
-#![feature(iter_advance_by)]
+#![feature(exact_size_is_empty)]
 #![feature(let_chains)]
-#![feature(trait_upcasting)]
+#![feature(never_type)]
+#![feature(step_trait)]
+#![feature(stmt_expr_attributes)]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
+pub mod dev;
 pub mod error;
 pub mod file;
 pub mod fs;
+pub mod io;
 pub mod path;
 pub mod types;
