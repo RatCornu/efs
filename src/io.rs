@@ -1,5 +1,7 @@
 //! General traits for I/O interfaces.
 
+use derive_more::{Deref, DerefMut};
+
 use crate::error::Error;
 
 /// Base I/O trait that must be implemented for all types implementing [`Read`], [`Write`] or [`Seek`].
@@ -108,4 +110,66 @@ pub trait Seek: Base {
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Self::Error>>;
+}
+
+/// A wrapper struct for types that have implementations for [`std::io`] traits.
+///
+/// [`Read`], [`Write`] and [`Seek`] are implemented for this type if the corresponding [`std::io`] trait is implemented for `T`.
+#[cfg(feature = "std")]
+#[derive(Deref, DerefMut)]
+pub struct StdIOWrapper<S> {
+    /// Inner object, supposedly implementing at least one [`std::io`] trait.
+    inner: S,
+}
+
+#[cfg(feature = "std")]
+impl<S> StdIOWrapper<S> {
+    /// Creates an [`StdIOWrapper`] from the object it wraps.
+    #[inline]
+    #[must_use]
+    pub const fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<S> Base for StdIOWrapper<S> {
+    type Error = std::io::Error;
+}
+
+#[cfg(feature = "std")]
+impl<S: std::io::Read> Read for StdIOWrapper<S> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>> {
+        self.inner.read(buf).map_err(Error::IO)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<S: std::io::Write> Write for StdIOWrapper<S> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>> {
+        self.inner.write(buf).map_err(Error::IO)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> Result<(), Error<Self::Error>> {
+        self.inner.flush().map_err(Error::IO)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<S: std::io::Seek> Seek for StdIOWrapper<S> {
+    #[inline]
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Self::Error>> {
+        self.inner.seek(pos.into()).map_err(Error::IO)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<S> From<S> for StdIOWrapper<S> {
+    #[inline]
+    fn from(value: S) -> Self {
+        Self::new(value)
+    }
 }
