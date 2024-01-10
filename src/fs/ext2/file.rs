@@ -22,7 +22,7 @@ use crate::file::{self, DirectoryEntry, Stat};
 use crate::fs::error::FsError;
 use crate::fs::ext2::block::Block;
 use crate::fs::PATH_MAX;
-use crate::io::{Read, Seek, SeekFrom, Write};
+use crate::io::{Base, Read, Seek, SeekFrom, Write};
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
 
 /// Limit in bytes for the length of a pointed path of a symbolic link to be store in an inode and not in a separate data block.
@@ -147,9 +147,11 @@ pub struct Regular<D: Device<u8, Ext2Error>> {
     file: File<D>,
 }
 
-impl<D: Device<u8, Ext2Error>> Read for File<D> {
+impl<D: Device<u8, Ext2Error>> Base for File<D> {
     type Error = Ext2Error;
+}
 
+impl<D: Device<u8, Ext2Error>> Read for File<D> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>> {
         let filesystem = self.filesystem.borrow();
@@ -186,8 +188,6 @@ struct BlockWithState {
 }
 
 impl<D: Device<u8, Ext2Error>> Write for File<D> {
-    type Error = Ext2Error;
-
     #[inline]
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::cognitive_complexity)] // TODO: make this understandable for a human
@@ -673,8 +673,6 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> Seek for File<D> {
-    type Error = Ext2Error;
-
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         // SAFETY: it is safe to assume that the file length is smaller than 2^63 bytes long
@@ -756,9 +754,11 @@ impl<D: Device<u8, Ext2Error>> file::File for Regular<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
+impl<D: Device<u8, Ext2Error>> Base for Regular<D> {
     type Error = Ext2Error;
+}
 
+impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Ext2Error>> {
         self.file.read(buf)
@@ -766,8 +766,6 @@ impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> Write for Regular<D> {
-    type Error = Ext2Error;
-
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
         self.file.write(buf)
@@ -780,8 +778,6 @@ impl<D: Device<u8, Ext2Error>> Write for Regular<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> Seek for Regular<D> {
-    type Error = Ext2Error;
-
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         self.file.seek(pos)
