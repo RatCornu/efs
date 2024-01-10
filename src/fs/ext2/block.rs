@@ -16,7 +16,7 @@ use crate::dev::Device;
 use crate::error::Error;
 use crate::fs::error::FsError;
 use crate::fs::ext2::block_group::BlockGroupDescriptor;
-use crate::io::{Read, Seek, SeekFrom, Write};
+use crate::io::{Base, Read, Seek, SeekFrom, Write};
 
 /// An ext2 block.
 #[derive(Clone)]
@@ -196,9 +196,11 @@ impl<Dev: Device<u8, Ext2Error>> From<Block<Dev>> for u32 {
     }
 }
 
-impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {
+impl<Dev: Device<u8, Ext2Error>> Base for Block<Dev> {
     type Error = Ext2Error;
+}
 
+impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();
@@ -217,8 +219,6 @@ impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {
 }
 
 impl<Dev: Device<u8, Ext2Error>> Write for Block<Dev> {
-    type Error = Ext2Error;
-
     #[inline]
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();
@@ -244,8 +244,6 @@ impl<Dev: Device<u8, Ext2Error>> Write for Block<Dev> {
 }
 
 impl<Dev: Device<u8, Ext2Error>> Seek for Block<Dev> {
-    type Error = Ext2Error;
-
     #[inline]
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Ext2Error>> {
         let fs = self.filesystem.borrow();
