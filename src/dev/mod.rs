@@ -13,12 +13,13 @@ use core::ptr::{addr_of, slice_from_raw_parts};
 #[cfg(feature = "std")]
 use std::fs::File;
 #[cfg(feature = "std")]
-use std::io::{ErrorKind, Read, Seek, Write};
+use std::io::ErrorKind;
 
 use self::sector::Address;
 use self::size::Size;
 use crate::dev::error::DevError;
 use crate::error::Error;
+use crate::io::{Base, Read, Seek, SeekFrom, Write};
 
 pub mod celled;
 pub mod error;
@@ -224,7 +225,7 @@ pub trait Device<T: Copy, E: core::error::Error> {
             ..Address::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
                 "address",
                 i128::try_from(starting_addr.index() + length).unwrap_unchecked(),
-                (0, self.size().len().index().try_into().unwrap_unchecked()),
+                (0, self.size().0.into()),
             )))?;
         let slice = self.slice(range)?;
         let ptr = slice.inner.as_ptr();
@@ -259,7 +260,7 @@ pub trait Device<T: Copy, E: core::error::Error> {
             ..Address::forward_checked(starting_addr, length).ok_or(Error::Device(DevError::OutOfBounds(
                 "address",
                 i128::try_from(starting_addr.index() + length).unwrap_unchecked(),
-                (0, self.size().len().index().try_into().unwrap_unchecked()),
+                (0, self.size().0.into()),
             )))?;
         let mut device_slice = self.slice(range)?;
         let buffer = device_slice
@@ -278,12 +279,12 @@ macro_rules! impl_device {
         impl<T: Copy, E: core::error::Error> Device<T, E> for $volume {
             #[inline]
             fn size(&self) -> Size {
-                Size(Address::from(self.len()))
+                Size(self.len() as u64)
             }
 
             #[inline]
             fn slice(&self, addr_range: Range<Address>) -> Result<Slice<'_, T>, Error<E>> {
-                if Device::<T, E>::size(self) >= addr_range.end {
+                if Device::<T, E>::size(self) >= usize::from(addr_range.end) as u64 {
                     let addr_start = addr_range.start;
                     // SAFETY: it is not possible to manipulate addresses with a higher bit number than the device's
                     let range = unsafe { usize::try_from(addr_range.start.index()).unwrap_unchecked() }..unsafe {
@@ -296,8 +297,7 @@ macro_rules! impl_device {
                         "address",
                         // SAFETY: it is assumed that `usize` can always be converted to `i128`
                         unsafe { addr_range.end.index().try_into().unwrap_unchecked() },
-                        // SAFETY: it is assumed that `usize` can always be converted to `i128`
-                        (0, unsafe { <Self as Device<T, E>>::size(self).len().index().try_into().unwrap_unchecked() }),
+                        (0, <Self as Device<T, E>>::size(self).0.into()),
                     )))
                 }
             }
@@ -331,17 +331,62 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
+impl<E: core::error::Error, T: Base<Error = E> + Read + Write + Seek> Device<u8, E> for RefCell<T> {
+    #[inline]
+    fn size(&self) -> Size {
+        let mut device = self.borrow_mut();
+        let offset = device.seek(SeekFrom::End(0)).expect("Could not seek the device at its end");
+        let size = device
+            .seek(SeekFrom::Start(offset))
+            .expect("Could not seek the device at its original offset");
+        Size(size)
+    }
+
+    #[inline]
+    fn slice(&self, addr_range: Range<Address>) -> Result<Slice<'_, u8>, Error<E>> {
+        let starting_addr = addr_range.start;
+        let len = TryInto::<usize>::try_into((addr_range.end - addr_range.start).index()).map_err(|_err| {
+            Error::Device(DevError::OutOfBounds(
+                "addr range",
+                // SAFETY: `usize::MAX <= i128::MAX`
+                unsafe { i128::try_from((addr_range.end - addr_range.start).index()).unwrap_unchecked() },
+                (0, i128::MAX),
+            ))
+        })?;
+
+        let mut slice = alloc::vec![0; len];
+        let mut device = self.borrow_mut();
+        device
+            .seek(SeekFrom::Start(starting_addr.index().try_into().expect("Could not convert `usize` to `u64`")))
+            .and_then(|_| device.read_exact(&mut slice))?;
+
+        Ok(Slice::new_owned(slice, starting_addr))
+    }
+
+    #[inline]
+    fn commit(&mut self, commit: Commit<u8>) -> Result<(), Error<E>> {
+        let mut device = self.borrow_mut();
+
+        let offset = device.seek(SeekFrom::Start(commit.addr().index().try_into().expect("Could not convert `usize` to `u64`")))?;
+        device.write_all(commit.as_ref())?;
+        device.seek(SeekFrom::Start(offset))?;
+
+        Ok(())
+    }
+}
+
 #[cfg(feature = "std")]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     #[inline]
     fn size(&self) -> Size {
         let metadata = self.borrow().metadata().expect("Could not read the file");
-        let size = TryInto::<Address>::try_into(metadata.len()).expect("Could not convert `usize` to `u64`");
-        size.into()
+        Size(metadata.len())
     }
 
     #[inline]
     fn slice(&self, addr_range: Range<Address>) -> Result<Slice<'_, u8>, Error<E>> {
+        use std::io::{Read, Seek};
+
         let starting_addr = addr_range.start;
         let len = TryInto::<usize>::try_into((addr_range.end - addr_range.start).index()).map_err(|_err| {
             Error::Device(DevError::OutOfBounds(
@@ -364,11 +409,10 @@ impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
                         "address",
                         // SAFETY: `usize::MAX <= i128::MAX`
                         unsafe { i128::try_from(usize::from(starting_addr + len)).unwrap_unchecked() },
-                        // SAFETY: the size of a file is smaller than `i128::MAX`
-                        (0, unsafe { usize::from(Device::<u8, E>::size(self).0).try_into().unwrap_unchecked() }),
+                        (0, Device::<u8, E>::size(self).0.into()),
                     )))
                 } else {
-                    panic!("{err}");
+                    Err(Error::IO(err))
                 }
             },
         }
@@ -376,10 +420,17 @@ impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
 
     #[inline]
     fn commit(&mut self, commit: Commit<u8>) -> Result<(), Error<E>> {
+        use std::io::{Seek, Write};
+
         let mut file = self.borrow_mut();
-        file.seek(std::io::SeekFrom::Start(commit.addr().index().try_into().expect("Could not convert `usize` to `u64`")))
-            .and_then(|_| file.write_all(commit.as_ref()))
-            .expect("Could not seek/write on the given file");
+        match file.seek(std::io::SeekFrom::Start(commit.addr().index().try_into().expect("Could not convert `usize` to `u64`"))) {
+            Ok(offset) => {
+                file.write_all(commit.as_ref()).expect("Could not write on the given file");
+                file.seek(std::io::SeekFrom::Start(offset)).expect("Could not seek on the given file");
+            },
+            Err(err) => panic!("{err}: Could not seek on the given file"),
+        }
+
         Ok(())
     }
 }
