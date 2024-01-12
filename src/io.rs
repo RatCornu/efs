@@ -2,6 +2,7 @@
 
 use derive_more::{Deref, DerefMut};
 
+use crate::dev::error::DevError;
 use crate::error::Error;
 
 /// Base I/O trait that must be implemented for all types implementing [`Read`], [`Write`] or [`Seek`].
@@ -26,6 +27,31 @@ pub trait Read: Base {
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>>;
+
+    /// Read the exact number of bytes required to fill buf.
+    ///
+    /// See [`read_exact`](https://docs.rs/no_std_io/latest/no_std_io/io/trait.Read.html#method.read_exact) for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`UnexpectedEof`](DevError::UnexpectedEof) if the buffer could not be entirely filled.
+    ///
+    /// Otherwise, returns the same errors as [`read`](Read::read).
+    #[allow(clippy::indexing_slicing)]
+    #[inline]
+    fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        while !buf.is_empty() {
+            match self.read(buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let tmp = buf;
+                    buf = &mut tmp[n..];
+                },
+                Err(err) => return Err(err),
+            }
+        }
+        if buf.is_empty() { Ok(()) } else { Err(Error::Device(DevError::UnexpectedEof)) }
+    }
 }
 
 /// Allows for writing bytes to a destination.
@@ -53,6 +79,30 @@ pub trait Write: Base {
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
     fn flush(&mut self) -> Result<(), Error<Self::Error>>;
+
+    /// Attempts to write an entire buffer into this writer.
+    ///
+    /// See [`write_all`](https://docs.rs/no_std_io/latest/no_std_io/io/trait.Write.html#method.write_all) for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WriteZero`](DevError::WriteZero) error if the buffer could not be written entirely.
+    ///
+    /// Otherwise, returns the same errors as [`write`](Write::write).
+    #[allow(clippy::indexing_slicing)]
+    #[inline]
+    fn write_all(&mut self, mut buf: &[u8]) -> Result<(), Error<Self::Error>> {
+        while !buf.is_empty() {
+            match self.write(buf) {
+                Ok(0) => {
+                    return Err(Error::Device(DevError::WriteZero));
+                },
+                Ok(n) => buf = &buf[n..],
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Enumeration of possible methods to seek within an I/O object.
