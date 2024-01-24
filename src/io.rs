@@ -26,7 +26,7 @@ pub trait Read: Base {
     ///
     /// # Errors
     ///
-    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
+    /// Returns an [`DevError`] if the device on which the directory is located could not be read.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>>;
 
     /// Read the exact number of bytes required to fill buf.
@@ -69,7 +69,7 @@ pub trait Write: Base {
     ///
     /// # Errors
     ///
-    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be written.
+    /// Returns an [`DevError`] if the device on which the directory is located could not be written.
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>>;
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
@@ -78,7 +78,7 @@ pub trait Write: Base {
     ///
     /// # Errors
     ///
-    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
+    /// Returns an [`DevError`] if the device on which the directory is located could not be read.
     fn flush(&mut self) -> Result<(), Error<Self::Error>>;
 
     /// Attempts to write an entire buffer into this writer.
@@ -159,7 +159,7 @@ pub trait Seek: Base {
     ///
     /// # Errors
     ///
-    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
+    /// Returns an [`DevError`] if the device on which the directory is located could not be read.
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Error<Self::Error>>;
 }
 

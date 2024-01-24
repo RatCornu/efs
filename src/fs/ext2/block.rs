@@ -1,7 +1,7 @@
 //! Interface to manipulate blocks.
 //!
 //! A block is a contiguous part of the disk space. For a given filesystem, all the blocks have the same size, indicated in the
-//! [`Superblock`](super::superblock::Superblock).
+//! [`Superblock`].
 //!
 //! See [the OSDev wiki](https://wiki.osdev.org/Ext2#What_is_a_Block.3F) for more information.
 
