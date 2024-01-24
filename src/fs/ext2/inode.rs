@@ -451,6 +451,7 @@ impl Inode {
 
         let block_group = Self::block_group(superblock, n);
         let block_group_descriptor = BlockGroupDescriptor::parse(celled_device, superblock, block_group)?;
+
         let inode_table_starting_block = block_group_descriptor.inode_table;
         let index = Self::group_index(superblock, n);
 

@@ -30,7 +30,7 @@ pub struct BlockGroupDescriptor {
     /// Starting block address of inode table.
     pub inode_table: u32,
 
-    /// Number of unallocated blocks in groupµ.
+    /// Number of unallocated blocks in group.
     pub free_blocks_count: u16,
 
     /// Number of unallocated inodes in group.
@@ -63,9 +63,7 @@ impl BlockGroupDescriptor {
         };
 
         let superblock_end_address = SUPERBLOCK_START_BYTE + SUPERBLOCK_SIZE;
-        Ok(Address::new(
-            superblock_end_address + if superblock_end_address % (superblock.block_size() as usize) == 0 { 0 } else { 1 },
-        ))
+        Ok(Address::new(superblock_end_address + BLOCK_GROUP_DESCRIPTOR_SIZE * n as usize))
     }
 
     /// Parse the `n`th block group descriptor from the given device (starting at 0).
@@ -84,9 +82,8 @@ impl BlockGroupDescriptor {
     ) -> Result<Self, Error<Ext2Error>> {
         let device = celled_device.borrow();
 
-        let table_start_address = Self::starting_addr(superblock, n)?;
+        let block_group_descriptor_address = Self::starting_addr(superblock, n)?;
 
-        let block_group_descriptor_address = table_start_address + (n as usize * BLOCK_GROUP_DESCRIPTOR_SIZE);
         // SAFETY: all the possible failures are catched in the resulting error
         unsafe { device.read_at::<Self>(block_group_descriptor_address) }
     }

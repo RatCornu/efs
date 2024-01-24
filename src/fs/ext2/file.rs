@@ -437,14 +437,14 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
             }
         }
 
-        // Add the free blocks where it's necessary.
-        let free_block_numbers = &mut self
+        let free_blocks = self
             .filesystem
+            .borrow()
             // SAFETY: `blocks_to_request <= blocks_needed < u32::MAX`
-            .free_blocks(unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() })?
-            .into_iter();
+            .free_blocks(unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() })?;
 
-        let mut free_block_copied = free_block_numbers.clone();
+        // Add the free blocks where it's necessary.
+        let free_block_numbers = &mut free_blocks.clone().into_iter();
 
         // Direct block pointers
         direct_block_pointers.append(&mut free_block_numbers.take(12 - direct_block_pointers.len()).collect_vec());
@@ -655,13 +655,12 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
         updated_inode.size = unsafe { u32::try_from(new_size & u64::from(u32::MAX)).unwrap_unchecked() };
         // TODO: update `updated_inode.blocks`
 
-        assert!(u32::try_from(new_size).is_ok(), "Search how to deal with bigger files");
+        assert!(u32::try_from(new_size).is_ok(), "TODO: Search how to deal with bigger files");
 
         // SAFETY: the updated inode contains the right inode created in this function
         unsafe { self.set_inode(&updated_inode) }?;
 
-        // TODO: be smarter to avoid make 1000000 calls to device's `write`
-        free_block_copied.try_for_each(|block| Block::new(self.filesystem.clone(), block).set_used())?;
+        self.filesystem.as_ref().borrow_mut().allocate_blocs(&free_blocks)?;
 
         Ok(written_bytes)
     }

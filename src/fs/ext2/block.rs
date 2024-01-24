@@ -9,13 +9,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::error::Ext2Error;
+use super::superblock::Superblock;
 use super::Ext2;
 use crate::dev::celled::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
 use crate::error::Error;
 use crate::fs::error::FsError;
-use crate::fs::ext2::block_group::BlockGroupDescriptor;
 use crate::io::{Base, Read, Seek, SeekFrom, Write};
 
 /// An ext2 block.
@@ -46,15 +46,15 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
     /// Returns the containing block group of this block.
     #[inline]
     #[must_use]
-    pub fn block_group(&self) -> u32 {
-        self.number / self.filesystem.borrow().superblock().base().blocks_per_group
+    pub const fn block_group(&self, superblock: &Superblock) -> u32 {
+        self.number / superblock.base().blocks_per_group
     }
 
     /// Returns the offset of this block in its containing block group.
     #[inline]
     #[must_use]
-    pub fn group_index(&self) -> u32 {
-        self.number % self.filesystem.borrow().superblock().base().blocks_per_group
+    pub const fn group_index(&self, superblock: &Superblock) -> u32 {
+        self.number % superblock.base().blocks_per_group
     }
 
     /// Reads all the content from this block and returns it in a vector.
@@ -74,42 +74,26 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
         Ok(buffer)
     }
 
-    /// Returns whether this block is currently free or not.
+    /// Returns whether this block is currently free or not from the block bitmap in which the block resides.
     ///
-    /// As this operation needs to read directly from the given device, it is quite costly in computational time.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] if the device cannot be read.
+    /// The `bitmap` argument is usually the result of the method [`get_block_bitmap`](../struct.Ext2.html#method.get_block_bitmap).
+    #[allow(clippy::indexing_slicing)]
     #[inline]
-    pub fn is_free(&self) -> Result<bool, Error<Ext2Error>> {
-        let fs = self.filesystem.borrow();
-
-        let block_group = self.block_group();
-        let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group)?;
-        let mut block_group_descriptor_bitmap_block = Self::new(self.filesystem.clone(), block_group_descriptor.block_bitmap);
-
-        let bitmap_index = u64::from(self.group_index());
-        let byte_index = bitmap_index / 8;
-        let byte_offset = bitmap_index % 8;
-
-        let mut buffer = [0_u8];
-        block_group_descriptor_bitmap_block.seek(SeekFrom::Start(byte_index))?;
-        block_group_descriptor_bitmap_block.read(&mut buffer)?;
-
-        Ok((buffer[0] >> byte_offset) & 1 == 0)
+    #[must_use]
+    pub const fn is_free(&self, superblock: &Superblock, bitmap: &[u8]) -> bool {
+        let index = self.group_index(superblock) / 8;
+        let offset = self.number % 8;
+        bitmap[index as usize] >> offset & 1 == 0
     }
 
-    /// Returns whether this block is currently used or not.
+    /// Returns whether this block is currently used or not from the block bitmap in which the block resides.
     ///
-    /// As this operation needs to read directly from the given device, it is quite costly in computational time.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] if the device cannot be read.
+    /// The `bitmap` argument is usually the result of the method [`get_block_bitmap`](../struct.Ext2.html#method.get_block_bitmap).
+    #[allow(clippy::indexing_slicing)]
     #[inline]
-    pub fn is_used(&self) -> Result<bool, Error<Ext2Error>> {
-        self.is_free().map(|is_free| !is_free)
+    #[must_use]
+    pub const fn is_used(&self, superblock: &Superblock, bitmap: &[u8]) -> bool {
+        !self.is_free(superblock, bitmap)
     }
 
     /// Sets the current block usage in the block bitmap, and updates the superblock accordingly.
@@ -121,32 +105,8 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
     /// Returns an [`BlockAlreadyFree`](Ext2Error::BlockAlreadyFree) error if the given block was already free.
     ///
     /// Otherwise, returns an [`Error`] if the device cannot be written.
-    fn set_usage(&mut self, used: bool) -> Result<(), Error<Ext2Error>> {
-        let fs = self.filesystem.borrow();
-
-        let block_group = self.block_group();
-        let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group)?;
-        let mut block_group_descriptor_bitmap_block = Self::new(self.filesystem.clone(), block_group_descriptor.block_bitmap);
-        let bitmap_index = self.group_index();
-
-        let byte_index = bitmap_index / 8;
-        let byte_offset = bitmap_index % 8;
-
-        let mut buffer = [0_u8];
-
-        block_group_descriptor_bitmap_block.seek(SeekFrom::Start(u64::from(byte_index)))?;
-        block_group_descriptor_bitmap_block.read(&mut buffer)?;
-
-        if (buffer[0] >> byte_offset) & 1 == 1 && used {
-            Err(Ext2Error::BlockAlreadyInUse(self.number).into())
-        } else if (buffer[0] >> byte_offset) & 1 == 0 && !used {
-            Err(Ext2Error::BlockAlreadyFree(self.number).into())
-        } else {
-            buffer[0] ^= 1 << byte_offset;
-            block_group_descriptor_bitmap_block.seek(SeekFrom::Current(-1_i64))?;
-            block_group_descriptor_bitmap_block.write(&buffer)?;
-            Ok(())
-        }
+    fn set_usage(&mut self, usage: bool) -> Result<(), Error<Ext2Error>> {
+        self.filesystem.borrow_mut().locate_blocs(&[self.number], usage)
     }
 
     /// Sets the current block as free in the block bitmap, and updates the superblock accordingly.
@@ -283,6 +243,7 @@ mod test {
     use crate::dev::sector::Address;
     use crate::dev::Device;
     use crate::fs::ext2::block::Block;
+    use crate::fs::ext2::block_group::BlockGroupDescriptor;
     use crate::fs::ext2::error::Ext2Error;
     use crate::fs::ext2::superblock::Superblock;
     use crate::fs::ext2::Ext2;
@@ -357,14 +318,30 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let superblock = ext2.borrow().superblock().clone();
 
-        let mut block = Block::new(ext2, BLOCK_NUMBER);
+        let mut block = Block::new(ext2.clone(), BLOCK_NUMBER);
+        let block_group = block.block_group(&superblock);
 
-        assert!(block.is_used().unwrap());
+        let fs = ext2.borrow();
+        let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group).unwrap();
+        let free_block_count = block_group_descriptor.free_blocks_count;
+
+        let bitmap = fs.get_block_bitmap(block_group).unwrap();
+
+        drop(fs);
+
+        assert!(block.is_used(&superblock, &bitmap));
 
         block.set_free().unwrap();
 
-        assert!(block.is_free().unwrap());
+        let fs = ext2.borrow();
+        let new_free_block_count = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block.block_group(&superblock))
+            .unwrap()
+            .free_blocks_count;
+
+        assert!(block.is_free(&superblock, &fs.get_block_bitmap(block_group).unwrap()));
+        assert_eq!(free_block_count + 1, new_free_block_count);
 
         fs::remove_file("./tests/fs/ext2/io_operations_copy_block_set_free.ext2").unwrap();
     }
@@ -372,7 +349,7 @@ mod test {
     #[test]
     fn block_set_used() {
         // This block should not be used
-        const BLOCK_NUMBER: u32 = 1234;
+        const BLOCK_NUMBER: u32 = 1920;
 
         fs::copy("./tests/fs/ext2/io_operations.ext2", "./tests/fs/ext2/io_operations_copy_block_set_used.ext2").unwrap();
 
@@ -384,14 +361,30 @@ mod test {
                 .unwrap(),
         );
         let ext2 = Celled::new(Ext2::new(file, 0).unwrap());
+        let superblock = ext2.borrow().superblock().clone();
 
-        let mut block = Block::new(ext2, BLOCK_NUMBER);
+        let mut block = Block::new(ext2.clone(), BLOCK_NUMBER);
+        let block_group = block.block_group(&superblock);
 
-        assert!(block.is_free().unwrap());
+        let fs = ext2.borrow();
+        let block_group_descriptor = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block_group).unwrap();
+        let free_block_count = block_group_descriptor.free_blocks_count;
+
+        let bitmap = fs.get_block_bitmap(block_group).unwrap();
+
+        drop(fs);
+
+        assert!(block.is_free(&superblock, &bitmap));
 
         block.set_used().unwrap();
 
-        assert!(block.is_used().unwrap());
+        let fs = ext2.borrow();
+        let new_free_block_count = BlockGroupDescriptor::parse(&fs.device, fs.superblock(), block.block_group(&superblock))
+            .unwrap()
+            .free_blocks_count;
+
+        assert!(block.is_used(&superblock, &fs.get_block_bitmap(block_group).unwrap()));
+        assert_eq!(free_block_count - 1, new_free_block_count);
 
         fs::remove_file("./tests/fs/ext2/io_operations_copy_block_set_used.ext2").unwrap();
     }

@@ -69,7 +69,7 @@
 
 extern crate alloc;
 extern crate core;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 pub mod dev;
