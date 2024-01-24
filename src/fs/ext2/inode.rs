@@ -70,8 +70,12 @@ pub struct Inode {
     /// Count of hard links (directory entries) to this inode. When this reaches 0, the data blocks are marked as unallocated.
     pub links_count: u16,
 
-    /// Count of disk sectors (not Ext2 blocks) in use by this inode, not counting the actual inode structure nor directory entries
-    /// linking to the inode.
+    /// Indicates the amount of blocks reserved for the associated file data. This includes both currently in used
+    /// and currently reserved blocks in case the file grows in size.
+    ///
+    ///  Since this value represents 512-byte blocks and not file system blocks, this value should not be directly used as an index
+    /// to the i_block array. Rather, the maximum index of the i_block array should be computed from `i_blocks /
+    /// ((1024<<s_log_block_size)/512)`, or once simplified, `i_blocks/(2<<s_log_block_size)`.
     pub blocks: u32,
 
     /// Flags.
@@ -451,6 +455,7 @@ impl Inode {
 
         let block_group = Self::block_group(superblock, n);
         let block_group_descriptor = BlockGroupDescriptor::parse(celled_device, superblock, block_group)?;
+
         let inode_table_starting_block = block_group_descriptor.inode_table;
         let index = Self::group_index(superblock, n);
 

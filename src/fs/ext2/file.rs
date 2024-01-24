@@ -25,6 +25,10 @@ use crate::fs::PATH_MAX;
 use crate::io::{Base, Read, Seek, SeekFrom, Write};
 use crate::types::{Blkcnt, Blksize, Dev, Gid, Ino, Mode, Nlink, Off, Time, Timespec, Uid};
 
+/// Arbitrary number of supplementary reserved blocks for each file owned by the UID or the GID declared in [the
+/// superblock]((struct.Base.html#structfield.def_resuid)).
+pub const SUPPLEMENTARY_RESERVED_BLOCKS_PER_WRITE: u64 = 8;
+
 /// Limit in bytes for the length of a pointed path of a symbolic link to be store in an inode and not in a separate data block.
 pub const SYMBOLIC_LINK_INODE_STORE_LIMIT: usize = 60;
 
@@ -255,10 +259,18 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
             return Err(Error::Fs(FsError::Implementation(Ext2Error::OutOfBounds(buf.len() as i128))));
         }
 
+        let reserved_blocks =
+            if self.inode.uid == fs.superblock().base().def_resuid || self.inode.gid == fs.superblock().base().def_resgid {
+                SUPPLEMENTARY_RESERVED_BLOCKS_PER_WRITE
+            } else {
+                0
+            };
+
         // Calcul of the number of needed data blocks
         let bytes_to_write = buf.len() as u64;
-        let blocks_needed =
-            (bytes_to_write + self.io_offset) / block_size + u64::from((bytes_to_write + self.io_offset) % block_size != 0);
+        let blocks_needed = (bytes_to_write + self.io_offset) / block_size
+            + u64::from((bytes_to_write + self.io_offset) % block_size != 0)
+            + reserved_blocks;
         let (
             initial_direct_block_pointers,
             (initial_singly_indirect_block_pointer, initial_singly_indirect_blocks),
@@ -437,14 +449,14 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
             }
         }
 
-        // Add the free blocks where it's necessary.
-        let free_block_numbers = &mut self
+        let free_blocks = self
             .filesystem
+            .borrow()
             // SAFETY: `blocks_to_request <= blocks_needed < u32::MAX`
-            .free_blocks(unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() })?
-            .into_iter();
+            .free_blocks(unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() })?;
 
-        let mut free_block_copied = free_block_numbers.clone();
+        // Add the free blocks where it's necessary.
+        let free_block_numbers = &mut free_blocks.clone().into_iter();
 
         // Direct block pointers
         direct_block_pointers.append(&mut free_block_numbers.take(12 - direct_block_pointers.len()).collect_vec());
@@ -653,15 +665,16 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
 
         // SAFETY: the result cannot be greater than `u32::MAX`
         updated_inode.size = unsafe { u32::try_from(new_size & u64::from(u32::MAX)).unwrap_unchecked() };
-        // TODO: update `updated_inode.blocks`
+        updated_inode.blocks =
+            // SAFETY: the total number of blocks in this filesystem is on 32 bits in the superblock
+            unsafe { u32::try_from(blocks_needed).unwrap_unchecked() } * self.filesystem.borrow().superblock().block_size() / 512;
 
-        assert!(u32::try_from(new_size).is_ok(), "Search how to deal with bigger files");
+        assert!(u32::try_from(new_size).is_ok(), "TODO: Search how to deal with bigger files");
 
         // SAFETY: the updated inode contains the right inode created in this function
         unsafe { self.set_inode(&updated_inode) }?;
 
-        // TODO: be smarter to avoid make 1000000 calls to device's `write`
-        free_block_copied.try_for_each(|block| Block::new(self.filesystem.clone(), block).set_used())?;
+        self.filesystem.as_ref().borrow_mut().allocate_blocs(&free_blocks)?;
 
         Ok(written_bytes)
     }

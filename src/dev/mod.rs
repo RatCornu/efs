@@ -4,15 +4,14 @@ use alloc::borrow::{Cow, ToOwned};
 use alloc::boxed::Box;
 use alloc::slice;
 use alloc::vec::Vec;
-#[cfg(feature = "std")]
 use core::cell::RefCell;
 use core::iter::Step;
 use core::mem::{size_of, transmute_copy};
 use core::ops::{Deref, DerefMut, Range};
 use core::ptr::{addr_of, slice_from_raw_parts};
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 use std::fs::File;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 use std::io::ErrorKind;
 
 use self::sector::Address;
@@ -375,7 +374,7 @@ impl<E: core::error::Error, T: Base<Error = E> + Read + Write + Seek> Device<u8,
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 impl<E: core::error::Error> Device<u8, E> for RefCell<File> {
     #[inline]
     fn size(&self) -> Size {
