@@ -38,7 +38,7 @@ pub trait FileSystem<Dir: Directory> {
     ///
     /// If you do not have any idea of what this is, you are probably looking for [`root`](trait.FileSystem.html#tymethod.root).
     ///
-    /// See [`Component::DoubleSlashRootDir`] and [`Path`] for more information.
+    /// See [`DoubleSlashRootDir`](Component::DoubleSlashRootDir) and [`Path`] for more information.
     ///
     /// # Errors
     ///
@@ -64,19 +64,14 @@ pub trait FileSystem<Dir: Directory> {
     ///
     /// Returns an [`NoEnt`](FsError::NoEnt) error if an encountered symlink points to a non-existing file.
     #[inline]
-    fn pathname_resolution(
-        &self,
-        path: &Path,
-        current_dir: Dir,
-        symlink_resolution: bool,
-    ) -> Result<TypeWithFile<Dir>, Error<Dir::Error>>
+    fn get_file(&self, path: &Path, current_dir: Dir, symlink_resolution: bool) -> Result<TypeWithFile<Dir>, Error<Dir::Error>>
     where
         Self: Sized,
     {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn inner_resolution<
+        fn path_resolution<
             E: core::error::Error,
             R: Regular,
             SL: SymbolicLink,
@@ -132,6 +127,7 @@ pub trait FileSystem<Dir: Directory> {
                             TypeWithFile::Directory(dir) => {
                                 current_dir = dir;
                             },
+
                             // This case is the symbolic link resolution, which is the one described as **not** being the one
                             // explained in the following paragraph from the POSIX definition of the
                             // pathname resolution:
@@ -187,12 +183,12 @@ pub trait FileSystem<Dir: Directory> {
                     if complete_path.len() >= PATH_MAX {
                         Err(Error::Fs(FsError::NameTooLong(complete_path.to_string())))
                     } else {
-                        inner_resolution(fs, &complete_path, current_dir, symlink_resolution, visited_symlinks)
+                        path_resolution(fs, &complete_path, current_dir, symlink_resolution, visited_symlinks)
                     }
                 },
             }
         }
 
-        inner_resolution(self, path, current_dir, symlink_resolution, vec![])
+        path_resolution(self, path, current_dir, symlink_resolution, vec![])
     }
 }

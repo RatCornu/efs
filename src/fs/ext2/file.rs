@@ -113,6 +113,8 @@ impl<D: Device<u8, Ext2Error>> File<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> file::File for File<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn stat(&self) -> file::Stat {
         let filesystem = self.filesystem.borrow();
@@ -141,6 +143,12 @@ impl<D: Device<u8, Ext2Error>> file::File for File<D> {
             blksize: Blksize(filesystem.superblock.block_size().try_into().unwrap_or_default()),
             blkcnt: Blkcnt(self.inode.blocks.try_into().unwrap_or_default()),
         }
+    }
+
+    #[inline]
+    fn get_type(&self) -> file::Type {
+        // SAFETY: the file type as been checked during the inode's parse
+        unsafe { self.inode.file_type().unwrap_unchecked() }
     }
 }
 
@@ -761,9 +769,16 @@ impl<D: Device<u8, Ext2Error>> Regular<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> file::File for Regular<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn stat(&self) -> Stat {
         self.file.stat()
+    }
+
+    #[inline]
+    fn get_type(&self) -> file::Type {
+        self.file.get_type()
     }
 }
 
@@ -797,7 +812,31 @@ impl<D: Device<u8, Ext2Error>> Seek for Regular<D> {
     }
 }
 
-impl<D: Device<u8, Ext2Error>> file::Regular for Regular<D> {}
+impl<D: Device<u8, Ext2Error>> file::Regular for Regular<D> {
+    #[inline]
+    fn truncate(&mut self, size: u64) -> Result<(), Error<<Self as file::File>::Error>> {
+        if u64::from(self.file.inode.size) <= size {
+            return Ok(());
+        }
+
+        let fs = self.file.filesystem.borrow();
+
+        let mut new_inode = self.file.inode;
+        // SAFETY: the result is smaller than `u32::MAX`
+        new_inode.size = unsafe { u32::try_from(u64::from(u32::MAX) & size).unwrap_unchecked() };
+
+        let starting_addr = Inode::starting_addr(&fs.device, fs.superblock(), self.file.inode_number)?;
+
+        // SAFETY: this writes an inode at the starting address of the inode
+        unsafe {
+            fs.device.borrow_mut().write_at(starting_addr, new_inode)?;
+        };
+
+        drop(fs);
+
+        self.file.update_inner_inode()
+    }
+}
 
 /// Interface for ext2's directories.
 #[derive(Debug)]
@@ -837,14 +876,20 @@ impl<D: Device<u8, Ext2Error>> Directory<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> file::File for Directory<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn stat(&self) -> Stat {
         self.file.stat()
     }
+
+    #[inline]
+    fn get_type(&self) -> file::Type {
+        self.file.get_type()
+    }
 }
 
 impl<Dev: Device<u8, Ext2Error>> file::Directory for Directory<Dev> {
-    type Error = Ext2Error;
     type File = File<Dev>;
     type Regular = Regular<Dev>;
     type SymbolicLink = SymbolicLink<Dev>;
@@ -912,9 +957,16 @@ impl<D: Device<u8, Ext2Error>> SymbolicLink<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> file::File for SymbolicLink<D> {
+    type Error = Ext2Error;
+
     #[inline]
     fn stat(&self) -> Stat {
         self.file.stat()
+    }
+
+    #[inline]
+    fn get_type(&self) -> file::Type {
+        self.file.get_type()
     }
 }
 

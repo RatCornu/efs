@@ -61,14 +61,29 @@ pub struct Stat {
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_164).
 pub trait File {
+    /// Error type associated with the directories of the [`FileSystem`](crate::fs::FileSystem) they belong to.
+    type Error: core::error::Error;
+
     /// Retrieves information about this file.
     fn stat(&self) -> Stat;
+
+    /// Retrieves the [`Type`] of this file.
+    fn get_type(&self) -> Type;
 }
 
 /// A file that is a randomly accessible sequence of bytes, with no further structure imposed by the system.
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_323).
-pub trait Regular: File + Read + Write + Seek {}
+pub trait Regular: File + Read + Write + Seek {
+    /// Trunctates the file size to the given `size` (in bytes).
+    ///
+    /// If the given `size` is greater than the previous file size, this function does nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
+    fn truncate(&mut self, size: u64) -> Result<(), Error<<Self as File>::Error>>;
+}
 
 /// An object that associates a filename with a file. Several directory entries can associate names with the same file.
 ///
@@ -87,9 +102,6 @@ pub struct DirectoryEntry<'path, Dir: Directory> {
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_129).
 pub trait Directory: Sized + File {
-    /// Error type associated with the directories of the [`FileSystem`](crate::fs::FileSystem) they belong to.
-    type Error: core::error::Error;
-
     /// Type of the regular files in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
     type Regular: Regular;
 
