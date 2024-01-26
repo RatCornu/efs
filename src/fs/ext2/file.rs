@@ -1,12 +1,13 @@
 //! Interface to manipulate UNIX files on an ext2 filesystem.
 
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::mem::size_of;
 use core::ops::{AddAssign, SubAssign};
-use core::ptr::addr_of;
+use core::ptr::{addr_of, addr_of_mut};
 use core::slice::from_raw_parts;
 
 use itertools::Itertools;
@@ -110,6 +111,35 @@ impl<D: Device<u8, Ext2Error>> File<D> {
 
         Ok(())
     }
+
+    /// General implementation of [`truncate`](file::Regular::truncate) for ext2's [`File`].
+    ///
+    /// # Errors
+    ///
+    /// Same as [`truncate`](file::Regular::truncate).
+    #[inline]
+    pub fn truncate(&mut self, size: u64) -> Result<(), Error<Ext2Error>> {
+        if u64::from(self.inode.size) <= size {
+            return Ok(());
+        }
+
+        let fs = self.filesystem.borrow();
+
+        let mut new_inode = self.inode;
+        // SAFETY: the result is smaller than `u32::MAX`
+        new_inode.size = unsafe { u32::try_from(u64::from(u32::MAX) & size).unwrap_unchecked() };
+
+        let starting_addr = Inode::starting_addr(&fs.device, fs.superblock(), self.inode_number)?;
+
+        // SAFETY: this writes an inode at the starting address of the inode
+        unsafe {
+            fs.device.borrow_mut().write_at(starting_addr, new_inode)?;
+        };
+
+        drop(fs);
+
+        self.update_inner_inode()
+    }
 }
 
 impl<D: Device<u8, Ext2Error>> file::File for File<D> {
@@ -160,12 +190,12 @@ pub struct Regular<D: Device<u8, Ext2Error>> {
 }
 
 impl<D: Device<u8, Ext2Error>> Base for File<D> {
-    type Error = Ext2Error;
+    type IOError = Ext2Error;
 }
 
 impl<D: Device<u8, Ext2Error>> Read for File<D> {
     #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::Error>> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<Self::IOError>> {
         let filesystem = self.filesystem.borrow();
         self.inode
             .read_data(&filesystem.device, &filesystem.superblock, buf, self.io_offset)
@@ -203,7 +233,7 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
     #[inline]
     #[allow(clippy::too_many_lines)]
     #[allow(clippy::cognitive_complexity)] // TODO: make this understandable for a human
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::Error>> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error<Self::IOError>> {
         /// Writes the given `blocks` number in the indirect block with the number `block_number`.
         fn write_indirect_block<D: Device<u8, Ext2Error>>(
             filesystem: &Celled<Ext2<D>>,
@@ -783,7 +813,7 @@ impl<D: Device<u8, Ext2Error>> file::File for Regular<D> {
 }
 
 impl<D: Device<u8, Ext2Error>> Base for Regular<D> {
-    type Error = Ext2Error;
+    type IOError = Ext2Error;
 }
 
 impl<D: Device<u8, Ext2Error>> Read for Regular<D> {
@@ -815,26 +845,7 @@ impl<D: Device<u8, Ext2Error>> Seek for Regular<D> {
 impl<D: Device<u8, Ext2Error>> file::Regular for Regular<D> {
     #[inline]
     fn truncate(&mut self, size: u64) -> Result<(), Error<<Self as file::File>::Error>> {
-        if u64::from(self.file.inode.size) <= size {
-            return Ok(());
-        }
-
-        let fs = self.file.filesystem.borrow();
-
-        let mut new_inode = self.file.inode;
-        // SAFETY: the result is smaller than `u32::MAX`
-        new_inode.size = unsafe { u32::try_from(u64::from(u32::MAX) & size).unwrap_unchecked() };
-
-        let starting_addr = Inode::starting_addr(&fs.device, fs.superblock(), self.file.inode_number)?;
-
-        // SAFETY: this writes an inode at the starting address of the inode
-        unsafe {
-            fs.device.borrow_mut().write_at(starting_addr, new_inode)?;
-        };
-
-        drop(fs);
-
-        self.file.update_inner_inode()
+        self.file.truncate(size)
     }
 }
 
@@ -908,6 +919,16 @@ impl<Dev: Device<u8, Ext2Error>> file::Directory for Directory<Dev> {
 
         Ok(entries)
     }
+
+    #[inline]
+    fn add_entry(&mut self, entry: DirectoryEntry<Self>) -> Result<(), Error<Self::Error>> {
+        todo!()
+    }
+
+    #[inline]
+    fn remove_entry(&mut self, entry_name: crate::path::UnixStr) -> Result<(), Error<Self::Error>> {
+        todo!()
+    }
 }
 
 /// Interface for ext2's symbolic links.
@@ -972,8 +993,41 @@ impl<D: Device<u8, Ext2Error>> file::File for SymbolicLink<D> {
 
 impl<D: Device<u8, Ext2Error>> file::SymbolicLink for SymbolicLink<D> {
     #[inline]
-    fn pointed_file(&self) -> &str {
-        &self.pointed_file
+    fn get_pointed_file(&self) -> Result<&str, Error<Self::Error>> {
+        Ok(&self.pointed_file)
+    }
+
+    #[inline]
+    fn set_pointed_file(&mut self, pointed_file: &str) -> Result<(), Error<Self::Error>> {
+        let bytes = pointed_file.as_bytes();
+
+        if bytes.len() > PATH_MAX {
+            Err(Error::Fs(FsError::NameTooLong(pointed_file.to_owned())))
+        } else if bytes.len() > SYMBOLIC_LINK_INODE_STORE_LIMIT {
+            self.file.seek(SeekFrom::Start(0))?;
+            self.file.write(bytes)?;
+            self.file.truncate(bytes.len() as u64)
+        } else {
+            let mut new_inode = self.file.inode;
+            // SAFETY: `bytes.len() < PATH_MAX << u32::MAX`
+            new_inode.size = unsafe { u32::try_from(bytes.len()).unwrap_unchecked() };
+
+            let data_ptr = addr_of_mut!(new_inode.blocks).cast::<u8>();
+            // SAFETY: there are `SYMBOLIC_LINK_INODE_STORE_LIMIT` bytes available to store the data
+            let data_slice = unsafe { core::slice::from_raw_parts_mut(data_ptr, bytes.len()) };
+            data_slice.clone_from_slice(bytes);
+
+            let fs = self.file.filesystem.borrow();
+            let starting_addr = Inode::starting_addr(&fs.device, fs.superblock(), self.file.inode_number)?;
+            // SAFETY: the starting address correspond to the one of this inode
+            unsafe {
+                fs.device.borrow_mut().write_at(starting_addr, new_inode)?;
+            };
+
+            drop(fs);
+
+            self.file.update_inner_inode()
+        }
     }
 }
 

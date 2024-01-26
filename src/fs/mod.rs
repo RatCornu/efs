@@ -9,7 +9,7 @@ use core::str::FromStr;
 use itertools::{Itertools, Position};
 
 use crate::error::Error;
-use crate::file::{Directory, File, Regular, SymbolicLink, TypeWithFile};
+use crate::file::{Directory, SymbolicLink, TypeWithFile};
 use crate::fs::error::FsError;
 use crate::path::{Component, Path};
 
@@ -71,13 +71,7 @@ pub trait FileSystem<Dir: Directory> {
         /// Auxiliary function used to store the visited symlinks during the pathname resolution to detect loops caused bt symbolic
         /// links.
         #[inline]
-        fn path_resolution<
-            E: core::error::Error,
-            R: Regular,
-            SL: SymbolicLink,
-            F: File,
-            D: Directory<Regular = R, SymbolicLink = SL, File = F, Error = E>,
-        >(
+        fn path_resolution<E: core::error::Error, D: Directory<Error = E>>(
             fs: &impl FileSystem<D>,
             path: &Path,
             mut current_dir: D,
@@ -145,7 +139,7 @@ pub trait FileSystem<Dir: Directory> {
                                     || !trailing_blackslash
                                     || !symlink_resolution =>
                             {
-                                let pointed_file = symlink.pointed_file().to_owned();
+                                let pointed_file = symlink.get_pointed_file()?.to_owned();
                                 if pointed_file.is_empty() {
                                     return Err(Error::Fs(FsError::NoEnt(filename.to_string())));
                                 };

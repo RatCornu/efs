@@ -330,7 +330,7 @@ impl_device!(&mut [T]);
 impl_device!(Vec<T>);
 impl_device!(Box<[T]>);
 
-impl<E: core::error::Error, T: Base<Error = E> + Read + Write + Seek> Device<u8, E> for RefCell<T> {
+impl<E: core::error::Error, T: Base<IOError = E> + Read + Write + Seek> Device<u8, E> for RefCell<T> {
     #[inline]
     fn size(&self) -> Size {
         let mut device = self.borrow_mut();

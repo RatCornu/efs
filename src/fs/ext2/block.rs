@@ -157,7 +157,7 @@ impl<Dev: Device<u8, Ext2Error>> From<Block<Dev>> for u32 {
 }
 
 impl<Dev: Device<u8, Ext2Error>> Base for Block<Dev> {
-    type Error = Ext2Error;
+    type IOError = Ext2Error;
 }
 
 impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {

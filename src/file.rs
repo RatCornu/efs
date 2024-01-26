@@ -103,13 +103,13 @@ pub struct DirectoryEntry<'path, Dir: Directory> {
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_129).
 pub trait Directory: Sized + File {
     /// Type of the regular files in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
-    type Regular: Regular;
+    type Regular: Regular<Error = Self::Error>;
 
     /// Type of the symbolic links in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
-    type SymbolicLink: SymbolicLink;
+    type SymbolicLink: SymbolicLink<Error = Self::Error>;
 
     /// Type of the other files (if any) in the [`FileSystem`](crate::fs::FileSystem) this directory belongs to.
-    type File: File;
+    type File: File<Error = Self::Error>;
 
     /// Returns the directory entries contained.
     ///
@@ -120,8 +120,26 @@ pub trait Directory: Sized + File {
     /// # Errors
     ///
     /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
-    #[allow(clippy::type_complexity)]
     fn entries(&self) -> Result<Vec<DirectoryEntry<Self>>, Error<Self::Error>>;
+
+    /// Adds a new empty entry to the directory, meaning that a new file will be created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`EntryAlreadyExist`](crate::fs::error::FsError::EntryAlreadyExist) error if the entry already exist.
+    ///
+    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be written.
+    fn add_entry(&mut self, entry: DirectoryEntry<Self>) -> Result<(), Error<Self::Error>>;
+
+    /// Removes an entry from the directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`NotFound`](crate::fs::error::FsError::NotFound) error if there is no entry with the given name in this
+    /// directory.
+    ///
+    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be written.
+    fn remove_entry(&mut self, name: UnixStr) -> Result<(), Error<Self::Error>>;
 
     /// Returns the entry with the given name.
     ///
@@ -156,8 +174,19 @@ pub trait Directory: Sized + File {
 ///
 /// Defined in [this POSIX definition](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html#tag_03_381).
 pub trait SymbolicLink: File {
-    /// Returns the string stored in this symbolic link
-    fn pointed_file(&self) -> &str;
+    /// Returns the string stored in this symbolic link.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be read.
+    fn get_pointed_file(&self) -> Result<&str, Error<Self::Error>>;
+
+    /// Sets the pointed file in this symbolic link.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`DevError`](crate::dev::error::DevError) if the device on which the directory is located could not be written.
+    fn set_pointed_file(&mut self, pointed_file: &str) -> Result<(), Error<Self::Error>>;
 }
 
 /// Enumeration of possible file types in a standard UNIX-like filesystem.
