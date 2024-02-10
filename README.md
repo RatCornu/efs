@@ -31,7 +31,7 @@ An OS and architecture independent implementation of some Unix filesystems in Ru
 
 * [`ext4`](https://en.wikipedia.org/wiki/Ext2): ❌
 
-* [`fatfs`](https://en.wikipedia.org/wiki/FatFs): ❌
+* [`SquashFS`](https://fr.wikipedia.org/wiki/SquashFS): ❌
 
 ## Usage
 
