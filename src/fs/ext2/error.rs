@@ -26,6 +26,9 @@ pub enum Ext2Error {
     /// Tried to set as used a block already in use.
     BlockAlreadyInUse(u32),
 
+    /// Tried to set as free an inode already free.
+    InodeAlreadyFree(u32),
+
     /// Given code does not correspond to a valid file system state.
     ///
     /// See [this table](https://wiki.osdev.org/Ext2#File_System_States) for reference.
@@ -56,6 +59,9 @@ pub enum Ext2Error {
     /// Requested more free blocks than currently available.
     NotEnoughFreeBlocks(u32, u32),
 
+    /// Requested an inode while none is available.
+    NotEnoughInodes,
+
     /// Tried to access a byte which is out of bounds.
     OutOfBounds(i128),
 }
@@ -74,6 +80,9 @@ impl Display for Ext2Error {
             },
             Self::BlockAlreadyInUse(nth) => {
                 write!(formatter, "Block Already in Use: tried to set the {nth} block in use while already being used")
+            },
+            Self::InodeAlreadyFree(inode_number) => {
+                write!(formatter, "Inode Already Free: tried to set the inode {inode_number} as free but is already")
             },
             Self::InvalidState(state) => write!(formatter, "Invalid State: {state} has been found while 1 or 2 was expected"),
             Self::InvalidErrorHandlingMethod(method) => {
@@ -97,6 +106,9 @@ impl Display for Ext2Error {
             },
             Self::NotEnoughFreeBlocks(requested, available) => {
                 write!(formatter, "Not Enough Free Blocks: requested {requested} free blocks while only {available} are available")
+            },
+            Self::NotEnoughInodes => {
+                write!(formatter, "Not Enough Inodes: requested an inode but all inodes are in use")
             },
             Self::OutOfBounds(byte) => {
                 write!(formatter, "Out of Bounds: tried to access the {byte}th byte which is out of bounds")

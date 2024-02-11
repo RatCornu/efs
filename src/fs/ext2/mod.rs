@@ -392,6 +392,30 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     pub fn deallocate_blocs(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
         self.locate_blocs(blocks, false)
     }
+
+    /// Finds an unused inode number, writes an empty inode, sets the usage of this inode as `true` and returns the inode number.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`NotEnoughInodes`](Ext2Error::NotEnoughInodes) if no inode is currently available.
+    ///
+    /// Returns an [`Error`] if the device cannot be read or written.
+    #[inline]
+    pub fn allocate_inode(&mut self) -> Result<u32, Error<Ext2Error>> {
+        todo!()
+    }
+
+    /// Sets the usage of this inode as `false` and deallocates every block used by this inode.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`InodeAlreadyFree`](Ext2Error::InodeAlreadyFree) if the given inode is already free.
+    ///
+    /// Returns an [`Error`] if the device cannot be read or written.
+    #[inline]
+    pub fn deallocate_inode(&mut self, inode_number: u32) -> Result<(), Error<Ext2Error>> {
+        todo!()
+    }
 }
 
 impl<Dev: Device<u8, Ext2Error>> Celled<Ext2<Dev>> {

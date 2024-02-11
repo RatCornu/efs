@@ -119,6 +119,8 @@ impl<D: Device<u8, Ext2Error>> File<D> {
     /// Same as [`truncate`](file::Regular::truncate).
     #[inline]
     pub fn truncate(&mut self, size: u64) -> Result<(), Error<Ext2Error>> {
+        // TODO: deallocate unused blocks
+
         if u64::from(self.inode.size) <= size {
             return Ok(());
         }
@@ -139,6 +141,32 @@ impl<D: Device<u8, Ext2Error>> File<D> {
         drop(fs);
 
         self.update_inner_inode()
+    }
+
+    /// Reads all the content of the file and returns it in a byte vector.
+    ///
+    /// Does not move the offset for I/O operations used by [`Seek`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Inode::read_data`].
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the total size of the file cannot be loaded in RAM.
+    #[inline]
+    pub fn read_all(&mut self) -> Result<Vec<u8>, Error<Ext2Error>> {
+        let mut buffer = vec![
+            0_u8;
+            self.inode
+                .data_size()
+                .try_into()
+                .expect("The size of the file's content is greater than the size representable on this computer.")
+        ];
+        let previous_offset = self.seek(SeekFrom::Start(0))?;
+        self.read(&mut buffer)?;
+        self.seek(SeekFrom::Start(previous_offset))?;
+        Ok(buffer)
     }
 }
 
@@ -291,6 +319,7 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
         }
 
         let fs = self.filesystem.borrow_mut();
+        let superblock = fs.superblock().clone();
         let block_size = u64::from(fs.superblock().block_size());
 
         if buf.len() as u64 > fs.superblock().max_file_size() {
@@ -487,11 +516,33 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
             }
         }
 
-        let free_blocks = self
-            .filesystem
-            .borrow()
+        let last_block_allocated = [
+            triply_indirect_blocks
+                .last()
+                .and_then(|(_, doubly_indirected_blocks)| {
+                    doubly_indirected_blocks
+                        .last()
+                        .map(|(_, singly_indirected_blokcs)| singly_indirected_blokcs.last())
+                })
+                .flatten()
+                .copied(),
+            doubly_indirect_blocks
+                .last()
+                .and_then(|(_, singly_indirected_blocks)| singly_indirected_blocks.last())
+                .copied(),
+            singly_indirect_blocks.last().copied(),
+            direct_block_pointers.iter().find_or_first(|block| **block != 0).copied(),
+        ]
+        .into_iter()
+        .find_or_last(Option::is_some)
+        .flatten()
+        .unwrap_or_default();
+
+        let free_blocks = self.filesystem.borrow().free_blocks_offset(
             // SAFETY: `blocks_to_request <= blocks_needed < u32::MAX`
-            .free_blocks(unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() })?;
+            unsafe { u32::try_from(total_blocks_to_request).unwrap_unchecked() },
+            last_block_allocated / superblock.base().blocks_per_group,
+        )?;
 
         // Add the free blocks where it's necessary.
         let free_block_numbers = &mut free_blocks.clone().into_iter();
@@ -780,21 +831,10 @@ impl<D: Device<u8, Ext2Error>> Regular<D> {
     ///
     /// # Panics
     ///
-    /// This function panics if the total size of the device cannot be loaded in RAM.
+    /// This function panics if the total size of the file cannot be loaded in RAM.
     #[inline]
     pub fn read_all(&mut self) -> Result<Vec<u8>, Error<Ext2Error>> {
-        let mut buffer = vec![
-            0_u8;
-            self.file
-                .inode
-                .data_size()
-                .try_into()
-                .expect("The size of the file's content is greater than the size representable on this computer.")
-        ];
-        let previous_offset = self.seek(SeekFrom::Start(0))?;
-        self.read(&mut buffer)?;
-        self.seek(SeekFrom::Start(previous_offset))?;
-        Ok(buffer)
+        self.file.read_all()
     }
 }
 
@@ -872,13 +912,16 @@ impl<D: Device<u8, Ext2Error>> Directory<D> {
 
         let mut entries = Vec::new();
 
-        let mut accumulated_size = 0_u32;
-        while accumulated_size < fs.superblock().block_size() {
-            let starting_addr =
-                Address::from((file.inode.direct_block_pointers[0] * fs.superblock().block_size() + accumulated_size) as usize);
+        let mut accumulated_size = 0_u64;
+        while accumulated_size < file.inode.data_size() {
+            // SAFETY: a directory will be generally one or two blocks long, it is very unlikely to have 2^32 bytes worth of entries
+            let starting_addr = Address::from(unsafe {
+                usize::try_from(u64::from(file.inode.direct_block_pointers[0] * fs.superblock().block_size()) + accumulated_size)
+                    .unwrap_unchecked()
+            });
             // SAFETY: `starting_addr` contains the beginning of an entry
             let entry = unsafe { Entry::parse(&fs.device, starting_addr) }?;
-            accumulated_size += u32::from(entry.rec_len);
+            accumulated_size += u64::from(entry.rec_len);
             entries.push(entry);
         }
 
@@ -1171,7 +1214,7 @@ mod test {
             panic!("`foo.txt` has been created as a regular file")
         };
 
-        assert_eq!(foo.read_all().unwrap(), b"Hello world!\n");
+        assert_eq!(foo.file.read_all().unwrap(), b"Hello world!\n");
     }
 
     #[test]
