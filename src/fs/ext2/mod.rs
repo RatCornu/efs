@@ -24,6 +24,7 @@ pub mod block_group;
 pub mod directory;
 pub mod error;
 pub mod file;
+pub mod indirection;
 pub mod inode;
 pub mod superblock;
 
@@ -270,7 +271,7 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     ///
     /// Otherwise, returns the same errors as [`get_block_bitmap`](struct.Ext2.html#method.get_block_bitmap).
     #[inline]
-    fn locate_blocs(&mut self, blocks: &[u32], usage: bool) -> Result<(), Error<Ext2Error>> {
+    fn locate_blocks(&mut self, blocks: &[u32], usage: bool) -> Result<(), Error<Ext2Error>> {
         /// Updates the block group bitmap and the free block count in the descriptor.
         ///
         /// # Errors
@@ -377,8 +378,8 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     ///
     /// Otherwise, returns the same errors as [`get_block_bitmap`](struct.Ext2.html#method.get_block_bitmap).
     #[inline]
-    pub fn allocate_blocs(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
-        self.locate_blocs(blocks, true)
+    pub fn allocate_blocks(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
+        self.locate_blocks(blocks, true)
     }
 
     /// Sets all the given `blocs` as "free".
@@ -389,8 +390,8 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     ///
     /// Otherwise, returns the same errors as [`get_block_bitmap`](struct.Ext2.html#method.get_block_bitmap).
     #[inline]
-    pub fn deallocate_blocs(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
-        self.locate_blocs(blocks, false)
+    pub fn deallocate_blocks(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
+        self.locate_blocks(blocks, false)
     }
 
     /// Finds an unused inode number, writes an empty inode, sets the usage of this inode as `true` and returns the inode number.
@@ -546,7 +547,7 @@ mod test {
         let mut ext2 = Ext2::new(device, 0).unwrap();
 
         let free_blocks = ext2.free_blocks(1_024).unwrap();
-        ext2.allocate_blocs(&free_blocks).unwrap();
+        ext2.allocate_blocks(&free_blocks).unwrap();
 
         let fs = Celled::new(ext2);
 
@@ -556,7 +557,7 @@ mod test {
             assert!(Block::new(fs.clone(), *block).is_used(&superblock, &bitmap), "Allocation: {block}");
         }
 
-        fs.borrow_mut().deallocate_blocs(&free_blocks).unwrap();
+        fs.borrow_mut().deallocate_blocks(&free_blocks).unwrap();
 
         for block in &free_blocks {
             let bitmap = fs.borrow().get_block_bitmap(block / superblock.base().blocks_per_group).unwrap();
@@ -584,7 +585,7 @@ mod test {
         let mut ext2 = Ext2::new(device, 0).unwrap();
 
         let free_blocks = ext2.free_blocks(20_000).unwrap();
-        ext2.allocate_blocs(&free_blocks).unwrap();
+        ext2.allocate_blocks(&free_blocks).unwrap();
 
         let fs = Celled::new(ext2);
 
@@ -598,7 +599,7 @@ mod test {
             );
         }
 
-        fs.borrow_mut().deallocate_blocs(&free_blocks).unwrap();
+        fs.borrow_mut().deallocate_blocks(&free_blocks).unwrap();
 
         for block in &free_blocks {
             let bitmap = fs.borrow().get_block_bitmap(block / superblock.base().blocks_per_group).unwrap();

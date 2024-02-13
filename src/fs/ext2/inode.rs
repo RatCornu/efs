@@ -11,6 +11,7 @@ use itertools::Itertools;
 
 use super::block_group::BlockGroupDescriptor;
 use super::error::Ext2Error;
+use super::indirection::IndirectedBlocks;
 use super::superblock::{OperatingSystem, Superblock};
 use super::Celled;
 use crate::dev::sector::Address;
@@ -353,13 +354,6 @@ impl Osd2 {
     }
 }
 
-/// Type alias for data blocks in an inode. It contains :
-/// - the direct block numbers;
-/// - a vector of singly indirected block numbers;
-/// - a vector of vectors containing doubly indirected block numbers;
-/// - a vector of vectors of vectors containing triply indirected block numbers.
-pub type IndirectedBlocks = (Vec<u32>, (u32, Vec<u32>), (u32, Vec<(u32, Vec<u32>)>), (u32, Vec<(u32, Vec<(u32, Vec<u32>)>)>));
-
 impl Inode {
     /// Returns the block group of the `n`th inode.
     ///
@@ -546,7 +540,7 @@ impl Inode {
         let mut triply_indirect_blocks = Vec::new();
 
         if singly_indirect_block_pointer == 0 {
-            return Ok((
+            return Ok(IndirectedBlocks::new(
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -557,7 +551,7 @@ impl Inode {
         singly_indirect_blocks.append(&mut read_indirect_block(celled_device, superblock, singly_indirect_block_pointer)?);
 
         if doubly_indirect_block_pointer == 0 {
-            return Ok((
+            return Ok(IndirectedBlocks::new(
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -569,7 +563,7 @@ impl Inode {
 
         for block_pointer in singly_indirect_block_pointers {
             if block_pointer == 0 {
-                return Ok((
+                return Ok(IndirectedBlocks::new(
                     direct_block_pointers,
                     (singly_indirect_block_pointer, singly_indirect_blocks),
                     (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -581,7 +575,7 @@ impl Inode {
         }
 
         if triply_indirect_block_pointer == 0 {
-            return Ok((
+            return Ok(IndirectedBlocks::new(
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -593,7 +587,7 @@ impl Inode {
 
         for block_pointer_pointer in doubly_indirect_block_pointers {
             if block_pointer_pointer == 0 {
-                return Ok((
+                return Ok(IndirectedBlocks::new(
                     direct_block_pointers,
                     (singly_indirect_block_pointer, singly_indirect_blocks),
                     (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -607,7 +601,7 @@ impl Inode {
 
             for block_pointer in singly_indirect_block_pointers {
                 if block_pointer == 0 {
-                    return Ok((
+                    return Ok(IndirectedBlocks::new(
                         direct_block_pointers,
                         (singly_indirect_block_pointer, singly_indirect_blocks),
                         (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -621,44 +615,12 @@ impl Inode {
             triply_indirect_blocks.push((block_pointer_pointer, dib));
         }
 
-        Ok((
+        Ok(IndirectedBlocks::new(
             direct_block_pointers,
             (singly_indirect_block_pointer, singly_indirect_blocks),
             (doubly_indirect_block_pointer, doubly_indirect_blocks),
             (triply_indirect_block_pointer, triply_indirect_blocks),
         ))
-    }
-
-    /// Returns the complete list of block numbers containing this inode's data (indirect blocks are not considered) in a single
-    /// continuous vector.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] if the device cannot be read.
-    #[inline]
-    pub fn flattened_data_blocks<D: Device<u8, Ext2Error>>(
-        &self,
-        celled_device: &Celled<D>,
-        superblock: &Superblock,
-    ) -> Result<Vec<u32>, Error<Ext2Error>> {
-        let (direct_block_pointers, (_, mut singly_indirect_blocks), (_, doubly_indirect_blocks), (_, triply_indirect_blocks)) =
-            self.data_blocks(celled_device, superblock)?;
-        let mut blocks = direct_block_pointers;
-        blocks.append(&mut singly_indirect_blocks);
-        blocks.append(
-            &mut doubly_indirect_blocks
-                .into_iter()
-                .flat_map(|(_, block_numbers)| block_numbers)
-                .collect_vec(),
-        );
-        blocks.append(
-            &mut triply_indirect_blocks
-                .into_iter()
-                .flat_map(|(_, block_numbers)| block_numbers)
-                .flat_map(|(_, block_numbers)| block_numbers)
-                .collect_vec(),
-        );
-        Ok(blocks)
     }
 
     /// Reads the content of this inode starting at the given `offset`, returning it in the given `buffer`. Returns the number of
@@ -678,7 +640,8 @@ impl Inode {
         buffer: &mut [u8],
         mut offset: u64,
     ) -> Result<usize, Error<Ext2Error>> {
-        let blocks = self.flattened_data_blocks(celled_device, superblock)?;
+        let data_blocks = self.data_blocks(celled_device, superblock)?;
+        let blocks = data_blocks.flatten();
 
         let device = celled_device.borrow();
         let buffer_length = buffer.len();

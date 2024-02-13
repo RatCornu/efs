@@ -343,7 +343,7 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
             (initial_singly_indirect_block_pointer, initial_singly_indirect_blocks),
             (initial_doubly_indirect_block_pointer, initial_doubly_indirect_blocks),
             (initial_triply_indirect_block_pointer, initial_triply_indirect_blocks),
-        ) = self.inode.data_blocks(&fs.device, fs.superblock())?;
+        ) = self.inode.data_blocks(&fs.device, fs.superblock())?.blocks();
         let current_data_block_number = (initial_direct_block_pointers.len()
             + initial_singly_indirect_blocks.len()
             + initial_doubly_indirect_blocks.len()
@@ -763,7 +763,7 @@ impl<D: Device<u8, Ext2Error>> Write for File<D> {
         // SAFETY: the updated inode contains the right inode created in this function
         unsafe { self.set_inode(&updated_inode) }?;
 
-        self.filesystem.as_ref().borrow_mut().allocate_blocs(&free_blocks)?;
+        self.filesystem.as_ref().borrow_mut().allocate_blocks(&free_blocks)?;
 
         Ok(written_bytes)
     }
