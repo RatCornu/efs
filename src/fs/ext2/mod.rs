@@ -12,6 +12,7 @@ use self::file::{Directory, Regular, SymbolicLink};
 use self::inode::{Inode, ROOT_DIRECTORY_INODE};
 use self::superblock::{Superblock, SUPERBLOCK_START_BYTE};
 use super::FileSystem;
+use crate::dev::bitmap::Bitmap;
 use crate::dev::celled::Celled;
 use crate::dev::sector::Address;
 use crate::dev::Device;
@@ -148,46 +149,14 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     ///
     /// Returns the same errors as [`BlockGroupDescriptor::parse`](block_group/struct.BlockGroupDescriptor.html#method.parse).
     #[inline]
-    pub fn get_block_bitmap(&self, block_group_number: u32) -> Result<Vec<u8>, Error<Ext2Error>> {
+    pub fn get_block_bitmap(&self, block_group_number: u32) -> Result<Bitmap<u8, Ext2Error, Dev>, Error<Ext2Error>> {
         let superblock = self.superblock();
 
         let block_group_descriptor = BlockGroupDescriptor::parse(&self.device, superblock, block_group_number)?;
         let starting_addr = Address::new((block_group_descriptor.block_bitmap * superblock.block_size()) as usize);
+        let length = (superblock.base().blocks_per_group / 8) as usize;
 
-        Ok(self
-            .device
-            .borrow()
-            .slice(starting_addr..starting_addr + (superblock.base().blocks_per_group / 8) as usize)?
-            .as_ref()
-            .to_vec())
-    }
-
-    /// Sets the block bitmap for the given block group as the given bitmap.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`BlockGroupDescriptor::parse`](block_group/struct.BlockGroupDescriptor.html#method.parse).
-    ///
-    /// # Panics
-    ///
-    /// This will panic if `block_bitmap.len() == superblock.blocks_per_group` is false.
-    ///
-    /// # Safety
-    ///
-    /// Must ensure that the given `block_bitmap` is coherent with the current filesystem's state.
-    unsafe fn set_block_bitmap(&self, block_group_number: u32, block_bitmap: &[u8]) -> Result<(), Error<Ext2Error>> {
-        let superblock = self.superblock();
-
-        let block_group_descriptor = BlockGroupDescriptor::parse(&self.device, superblock, block_group_number)?;
-        let starting_addr = Address::new((block_group_descriptor.block_bitmap * superblock.block_size()) as usize);
-
-        let mut device = self.device.borrow_mut();
-        let mut slice = device.slice(starting_addr..starting_addr + (superblock.base().blocks_per_group / 8) as usize)?;
-        slice.clone_from_slice(block_bitmap);
-        let commit = slice.commit();
-        device.commit(commit)?;
-
-        Ok(())
+        Bitmap::new(self.device.clone(), starting_addr, length)
     }
 
     /// Returns a [`Vec`] containing the block numbers of `n` free blocks.
@@ -222,18 +191,18 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
             let block_group_descriptor = BlockGroupDescriptor::parse(&self.device, self.superblock(), block_group_count)?;
             if block_group_descriptor.free_blocks_count > 0 {
                 let bitmap = self.get_block_bitmap(block_group_count)?;
-                for (index, byte) in bitmap.into_iter().enumerate() {
+                let group_free_block_index = bitmap.find_n_unset_bits(n as usize);
+
+                for (index, byte) in group_free_block_index {
                     // SAFETY: a block size is usually at most thousands of bytes, which is smaller than `u32::MAX`
                     let index = unsafe { u32::try_from(index).unwrap_unchecked() };
 
-                    if byte != u8::MAX {
-                        for bit in 0_u32..8 {
-                            if (byte >> bit) & 1 == 0 {
-                                free_blocks.push(block_group_count * self.superblock().base().blocks_per_group + index * 8 + bit);
+                    for bit in 0_u32..8 {
+                        if (byte >> bit) & 1 == 0 {
+                            free_blocks.push(block_group_count * self.superblock().base().blocks_per_group + index * 8 + bit);
 
-                                if free_blocks.len() as u64 == u64::from(n) {
-                                    return Ok(free_blocks);
-                                }
+                            if free_blocks.len() as u64 == u64::from(n) {
+                                return Ok(free_blocks);
                             }
                         }
                     }
@@ -285,10 +254,10 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
             ext2: &Ext2<Dev>,
             block_group_number: u32,
             number_blocks_changed_in_group: u16,
-            bitmap: &[u8],
+            bitmap: &mut Bitmap<u8, Ext2Error, Dev>,
             usage: bool,
         ) -> Result<(), Error<Ext2Error>> {
-            ext2.set_block_bitmap(block_group_number, bitmap)?;
+            bitmap.write_back()?;
 
             let mut new_block_group_descriptor = BlockGroupDescriptor::parse(&ext2.device, ext2.superblock(), block_group_number)?;
 
@@ -321,7 +290,7 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
                 if block / self.superblock().base().blocks_per_group != block_group_number {
                     // SAFETY: the state of the filesystem stays coherent within this function
                     unsafe {
-                        update_block_group(self, block_group_number, number_blocks_changed_in_group, &bitmap, usage)?;
+                        update_block_group(self, block_group_number, number_blocks_changed_in_group, &mut bitmap, usage)?;
                     };
 
                     number_blocks_changed_in_group = 0;
@@ -351,7 +320,7 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
 
             // SAFETY: the state of the filesystem stays coherent within this function
             unsafe {
-                update_block_group(self, block_group_number, number_blocks_changed_in_group, &bitmap, usage)?;
+                update_block_group(self, block_group_number, number_blocks_changed_in_group, &mut bitmap, usage)?;
             };
         }
 
@@ -392,6 +361,50 @@ impl<Dev: Device<u8, Ext2Error>> Ext2<Dev> {
     #[inline]
     pub fn deallocate_blocks(&mut self, blocks: &[u32]) -> Result<(), Error<Ext2Error>> {
         self.locate_blocks(blocks, false)
+    }
+
+    /// Returns the inode bitmap for the given block group.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`BlockGroupDescriptor::parse`](block_group/struct.BlockGroupDescriptor.html#method.parse).
+    #[inline]
+    pub fn get_inode_bitmap(&self, block_group_number: u32) -> Result<Bitmap<u8, Ext2Error, Dev>, Error<Ext2Error>> {
+        let superblock = self.superblock();
+
+        let block_group_descriptor = BlockGroupDescriptor::parse(&self.device, superblock, block_group_number)?;
+        let starting_addr = Address::new((block_group_descriptor.inode_bitmap * superblock.block_size()) as usize);
+        let length = (superblock.base().inodes_per_group / 8) as usize;
+
+        Bitmap::new(self.device.clone(), starting_addr, length)
+    }
+
+    /// Retuns the number of the first unused inode.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`NotEnoughInodes`](Ext2Error::NotEnoughInodes) if no inode is currently available.
+    ///
+    /// Returns an [`Error`] if the device cannot be read or written.
+    #[inline]
+    pub fn free_inode(&mut self) -> Result<u32, Error<Ext2Error>> {
+        for block_group_number in 0..self.superblock().block_group_count() {
+            let inode_bitmap = self.get_inode_bitmap(block_group_number)?;
+            if let Some(index) = inode_bitmap.iter().position(|byte| *byte != u8::MAX) {
+                // SAFETY: the index has been given by the function `position`
+                let byte = *unsafe { inode_bitmap.get_unchecked(index) };
+                for bit in 0_u32..8 {
+                    if (byte >> bit) & 1 == 0 {
+                        // SAFETY: a block size is usually at most thousands of bytes, which is smaller than `u32::MAX`
+                        let index = unsafe { u32::try_from(index).unwrap_unchecked() };
+
+                        return Ok(block_group_number * self.superblock().base().inodes_per_group + 8 * index + bit);
+                    }
+                }
+            }
+        }
+
+        Err(Error::Fs(FsError::Implementation(Ext2Error::NotEnoughInodes)))
     }
 
     /// Finds an unused inode number, writes an empty inode, sets the usage of this inode as `true` and returns the inode number.
@@ -500,7 +513,7 @@ mod test {
         let device = RefCell::new(File::options().read(true).write(true).open("./tests/fs/ext2/base.ext2").unwrap());
         let ext2 = Ext2::new(device, 0).unwrap();
 
-        assert_eq!(ext2.get_block_bitmap(0).unwrap().len() * 8, ext2.superblock().base().blocks_per_group as usize);
+        assert_eq!(ext2.get_block_bitmap(0).unwrap().length() * 8, ext2.superblock().base().blocks_per_group as usize);
     }
 
     #[test]
