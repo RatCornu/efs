@@ -20,6 +20,9 @@ use crate::error::Error;
 use crate::file::Type;
 use crate::fs::error::FsError;
 
+/// Number of direct block pointers in an inode.
+pub const DIRECT_BLOCK_POINTER_COUNT: u32 = 12;
+
 /// Reserved bad block inode number.
 pub const BAD_BLOCKS_INODE: u32 = 1;
 
@@ -541,6 +544,7 @@ impl Inode {
 
         if singly_indirect_block_pointer == 0 {
             return Ok(IndirectedBlocks::new(
+                superblock.block_size() / 4,
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -552,6 +556,7 @@ impl Inode {
 
         if doubly_indirect_block_pointer == 0 {
             return Ok(IndirectedBlocks::new(
+                superblock.block_size() / 4,
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -564,6 +569,7 @@ impl Inode {
         for block_pointer in singly_indirect_block_pointers {
             if block_pointer == 0 {
                 return Ok(IndirectedBlocks::new(
+                    superblock.block_size() / 4,
                     direct_block_pointers,
                     (singly_indirect_block_pointer, singly_indirect_blocks),
                     (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -576,6 +582,7 @@ impl Inode {
 
         if triply_indirect_block_pointer == 0 {
             return Ok(IndirectedBlocks::new(
+                superblock.block_size() / 4,
                 direct_block_pointers,
                 (singly_indirect_block_pointer, singly_indirect_blocks),
                 (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -588,6 +595,7 @@ impl Inode {
         for block_pointer_pointer in doubly_indirect_block_pointers {
             if block_pointer_pointer == 0 {
                 return Ok(IndirectedBlocks::new(
+                    superblock.block_size() / 4,
                     direct_block_pointers,
                     (singly_indirect_block_pointer, singly_indirect_blocks),
                     (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -602,6 +610,7 @@ impl Inode {
             for block_pointer in singly_indirect_block_pointers {
                 if block_pointer == 0 {
                     return Ok(IndirectedBlocks::new(
+                        superblock.block_size() / 4,
                         direct_block_pointers,
                         (singly_indirect_block_pointer, singly_indirect_blocks),
                         (doubly_indirect_block_pointer, doubly_indirect_blocks),
@@ -616,6 +625,7 @@ impl Inode {
         }
 
         Ok(IndirectedBlocks::new(
+            superblock.block_size() / 4,
             direct_block_pointers,
             (singly_indirect_block_pointer, singly_indirect_blocks),
             (doubly_indirect_block_pointer, doubly_indirect_blocks),

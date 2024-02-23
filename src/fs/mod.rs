@@ -188,7 +188,7 @@ pub trait FileSystem<Dir: Directory> {
 }
 
 /// A read-only filesystem.
-trait ReadOnlyFileSystem<RoDir: ReadOnlyDirectory> {
+pub trait ReadOnlyFileSystem<RoDir: ReadOnlyDirectory> {
     /// Returns the root directory of the filesystem.
     ///
     /// # Errors

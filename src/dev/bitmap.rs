@@ -107,7 +107,8 @@ impl<E: core::error::Error, T: Copy, Dev: Device<T, E>> Bitmap<T, E, Dev> {
 }
 
 impl<E: core::error::Error, Dev: Device<u8, E>> Bitmap<u8, E, Dev> {
-    /// Specialization of [`find_to_count`] to find the first bytes such that the sum of set bits is at least `n`.
+    /// Specialization of [`find_to_count`](struct.Bitmap.html#method.find_to_count) to find the first bytes such that the sum of
+    /// set bits is at least `n`.
     #[inline]
     #[must_use]
     pub fn find_n_set_bits(&self, n: usize) -> Vec<(usize, u8)> {
@@ -119,7 +120,8 @@ impl<E: core::error::Error, Dev: Device<u8, E>> Bitmap<u8, E, Dev> {
         })
     }
 
-    /// Specialization of [`find_to_count`] to find the first bytes such that the sum of unset bits is at least `n`.
+    /// Specialization of [`find_to_count`](struct.Bitmap.html#method.find_to_count) to find the first bytes such that the sum of
+    /// unset bits is at least `n`.
     #[inline]
     #[must_use]
     pub fn find_n_unset_bits(&self, n: usize) -> Vec<(usize, u8)> {
