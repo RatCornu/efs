@@ -510,7 +510,7 @@ impl Inode {
         &self,
         celled_device: &Celled<D>,
         superblock: &Superblock,
-    ) -> Result<IndirectedBlocks, Error<Ext2Error>> {
+    ) -> Result<IndirectedBlocks<DIRECT_BLOCK_POINTER_COUNT>, Error<Ext2Error>> {
         /// Returns the list of block addresses contained in the given indirect block.
         #[allow(clippy::cast_ptr_alignment)]
         fn read_indirect_block<D: Device<u8, Ext2Error>>(
