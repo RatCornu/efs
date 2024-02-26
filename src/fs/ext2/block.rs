@@ -106,7 +106,7 @@ impl<Dev: Device<u8, Ext2Error>> Block<Dev> {
     ///
     /// Otherwise, returns an [`Error`] if the device cannot be written.
     fn set_usage(&mut self, usage: bool) -> Result<(), Error<Ext2Error>> {
-        self.filesystem.borrow_mut().locate_blocs(&[self.number], usage)
+        self.filesystem.borrow_mut().locate_blocks(&[self.number], usage)
     }
 
     /// Sets the current block as free in the block bitmap, and updates the superblock accordingly.
@@ -157,7 +157,7 @@ impl<Dev: Device<u8, Ext2Error>> From<Block<Dev>> for u32 {
 }
 
 impl<Dev: Device<u8, Ext2Error>> Base for Block<Dev> {
-    type Error = Ext2Error;
+    type IOError = Ext2Error;
 }
 
 impl<Dev: Device<u8, Ext2Error>> Read for Block<Dev> {

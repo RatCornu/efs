@@ -10,6 +10,9 @@ use crate::file::Type;
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum FsError<E: core::error::Error> {
+    /// Indicates that the given [`File`](crate::file::File) already exist in the given directory.
+    EntryAlreadyExist(String),
+
     /// Indicates that the given [`Path`](crate::path::Path) is too long to be resolved.
     NameTooLong(String),
 
@@ -38,6 +41,7 @@ impl<E: core::error::Error> Display for FsError<E> {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::EntryAlreadyExist(file) => write!(formatter, "Entry Already Exist: \"{file}\" already exist in given directory"),
             Self::Loop(path) => write!(formatter, "Loop: a loop has been encountered during the resolution of \"{path}\""),
             Self::NameTooLong(path) => write!(formatter, "Name too long: \"{path}\" is too long to be resolved"),
             Self::NotDir(filename) => write!(formatter, "Not a Directory: \"{filename}\" is not a directory"),
